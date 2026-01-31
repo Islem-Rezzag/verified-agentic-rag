@@ -1,0 +1,2 @@
+{"question":"What is a Crew in this framework?","expected":"answer"}
+{"question":"Does this repo contain a built-in Kubernetes autoscaler?","expected":"refuse"}

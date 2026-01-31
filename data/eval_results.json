@@ -1,0 +1,20 @@
+[
+  {
+    "question": "What is a Crew in this framework?",
+    "expected": "answer",
+    "cannot_answer": true,
+    "confidence": "low",
+    "has_citations": false,
+    "pass_refusal_rule": true,
+    "pass_citation_rule": true
+  },
+  {
+    "question": "Does this repo contain a built-in Kubernetes autoscaler?",
+    "expected": "refuse",
+    "cannot_answer": true,
+    "confidence": "low",
+    "has_citations": false,
+    "pass_refusal_rule": true,
+    "pass_citation_rule": true
+  }
+]

@@ -1,0 +1,8 @@
+# Do not commit downloaded corpora
+data/source_repos/
+data/vector_store/
+data/logs/
+.env
+.venv/
+__pycache__/
+*.pyc
