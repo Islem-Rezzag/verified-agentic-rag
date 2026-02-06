@@ -128,7 +128,7 @@ def ask_question(cfg: AppConfig, question: str, debug: bool = False, no_llm: boo
         _log_run(cfg, run)
         return run
 
-    # Generate answer using the best retrieved chunks
+    # Generate answer using the best retrieved chunks.
     answer = llm.answer_with_citations(question=question, chunks=retrieved)
 
     # Validate citations one more time at orchestration layer

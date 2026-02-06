@@ -1,20 +1,42 @@
 [
   {
-    "question": "What is a Crew in this framework?",
+    "question": "What is the responsible committee for the Data Protection Policy - Employees?",
     "expected": "answer",
-    "cannot_answer": true,
-    "confidence": "low",
-    "has_citations": false,
+    "cannot_answer": false,
+    "confidence": "high",
+    "has_citations": true,
     "pass_refusal_rule": true,
-    "pass_citation_rule": true
+    "pass_citation_rule": true,
+    "pass_overall": true
   },
   {
-    "question": "Does this repo contain a built-in Kubernetes autoscaler?",
+    "question": "What is the review frequency (or next review date guidance) for the Data Protection Policy - Employees?",
+    "expected": "answer",
+    "cannot_answer": false,
+    "confidence": "low",
+    "has_citations": true,
+    "pass_refusal_rule": true,
+    "pass_citation_rule": true,
+    "pass_overall": true
+  },
+  {
+    "question": "What is the policy group for the Provision of IT Equipment & Acceptable Use policy?",
+    "expected": "answer",
+    "cannot_answer": false,
+    "confidence": "high",
+    "has_citations": true,
+    "pass_refusal_rule": true,
+    "pass_citation_rule": true,
+    "pass_overall": true
+  },
+  {
+    "question": "Does this policy pack contain a built-in Kubernetes autoscaler?",
     "expected": "refuse",
     "cannot_answer": true,
     "confidence": "low",
     "has_citations": false,
     "pass_refusal_rule": true,
-    "pass_citation_rule": true
+    "pass_citation_rule": true,
+    "pass_overall": true
   }
 ]

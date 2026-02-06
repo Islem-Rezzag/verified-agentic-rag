@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 from .chunking import Chunk
 
@@ -27,12 +27,19 @@ class Embedder:
     - embedding models convert text to numbers so similar texts are close in vector space.
     """
 
+    # Cache the loaded SentenceTransformer across instances in the same process.
+    # This avoids repeated HF Hub calls during eval loops.
+    _GLOBAL_MODELS: Dict[str, object] = {}
+
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
         self._model = None
 
     def _load(self):
         if self._model is None:
+            if self.model_name in self._GLOBAL_MODELS:
+                self._model = self._GLOBAL_MODELS[self.model_name]
+                return self._model
             try:
                 from sentence_transformers import SentenceTransformer
             except ImportError as e:
@@ -40,6 +47,7 @@ class Embedder:
                     "sentence-transformers is not installed. Run: pip install -r requirements.txt"
                 ) from e
             self._model = SentenceTransformer(self.model_name)
+            self._GLOBAL_MODELS[self.model_name] = self._model
         return self._model
 
     def embed_texts(self, texts: List[str], batch_size: int = 32) -> List[List[float]]:
@@ -68,7 +76,12 @@ class VectorIndex:
     - "Persistent" means it saves on disk so you can reuse the index later.
     """
 
-    def __init__(self, persist_dir: Path, collection_name: str, embedding_model: str) -> None:
+    def __init__(
+        self,
+        persist_dir: Path,
+        collection_name: str,
+        embedding_model: str,
+    ) -> None:
         self.persist_dir = persist_dir
         self.collection_name = collection_name
         self.embedder = Embedder(embedding_model)

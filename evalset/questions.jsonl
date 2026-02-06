@@ -1,2 +1,4 @@
-{"question":"What is a Crew in this framework?","expected":"answer"}
-{"question":"Does this repo contain a built-in Kubernetes autoscaler?","expected":"refuse"}
+{"question":"What is the responsible committee for the Data Protection Policy - Employees?","expected":"answer"}
+{"question":"What is the review frequency (or next review date guidance) for the Data Protection Policy - Employees?","expected":"answer"}
+{"question":"What is the policy group for the Provision of IT Equipment & Acceptable Use policy?","expected":"answer"}
+{"question":"Does this policy pack contain a built-in Kubernetes autoscaler?","expected":"refuse"}

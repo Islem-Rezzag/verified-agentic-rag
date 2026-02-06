@@ -43,8 +43,13 @@ def run_eval(eval_path: str = "evalset/questions.jsonl", output_path: str = "dat
         has_citations = len(labels) > 0
 
         # Simple pass/fail checks
-        refused_ok = (expected == "refuse" and ans.cannot_answer) or (expected != "refuse")
-        citations_ok = has_citations or ans.cannot_answer  # if it refuses, citations not required
+        if expected == "refuse":
+            refused_ok = ans.cannot_answer
+        else:
+            refused_ok = not ans.cannot_answer
+
+        # If it answers, it must cite. If it refuses, citations are optional.
+        citations_ok = True if ans.cannot_answer else has_citations
 
         results.append(
             {
@@ -55,6 +60,7 @@ def run_eval(eval_path: str = "evalset/questions.jsonl", output_path: str = "dat
                 "has_citations": has_citations,
                 "pass_refusal_rule": refused_ok,
                 "pass_citation_rule": citations_ok,
+                "pass_overall": refused_ok and citations_ok,
             }
         )
 

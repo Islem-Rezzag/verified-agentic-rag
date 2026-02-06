@@ -150,6 +150,39 @@ def _extract_json(text: str) -> dict:
     return json.loads(payload)
 
 
+def _preview_snippet(text: str, question: str, max_chars: int = 260) -> str:
+    """
+    Create a compact snippet for the grader prompt.
+
+    We try to show content near a keyword match so the grader can make a better decision
+    (PDF-extracted text often has long headers before the relevant line).
+    """
+    cleaned = " ".join((text or "").split())
+    if not cleaned:
+        return ""
+
+    tokens = [t.lower() for t in re.findall(r"[A-Za-z0-9][A-Za-z0-9_&-]{3,}", question or "")]
+    lowered = cleaned.lower()
+
+    pos = None
+    for tok in tokens:
+        i = lowered.find(tok)
+        if i != -1:
+            pos = i if pos is None else min(pos, i)
+
+    if pos is None:
+        return cleaned[:max_chars]
+
+    start = max(0, pos - max_chars // 3)
+    end = min(len(cleaned), start + max_chars)
+    snippet = cleaned[start:end]
+    if start > 0:
+        snippet = "..." + snippet
+    if end < len(cleaned):
+        snippet = snippet + "..."
+    return snippet
+
+
 def _coerce_answer_payload(data: dict) -> dict:
     """
     Ensure required keys exist for AnswerOut, even if the model omits fields.
@@ -162,6 +195,9 @@ def _coerce_answer_payload(data: dict) -> dict:
             "cannot_answer": True,
             "follow_ups": [],
         }
+    answer_val = data.get("answer", "")
+    if not isinstance(answer_val, str):
+        data["answer"] = "" if answer_val is None else str(answer_val)
     data.setdefault("answer", "")
     if not isinstance(data.get("citations", None), list):
         data["citations"] = []
@@ -248,7 +284,7 @@ class LLMClient:
         preview_lines = []
         for c in chunks[:6]:
             label = f"{c.rel_path}:{c.start_line}-{c.end_line}"
-            snippet = c.text.strip().replace("\n", " ")[:200]
+            snippet = _preview_snippet(c.text, question, max_chars=260)
             preview_lines.append(f"- [{label}] {snippet}")
         preview = "\n".join(preview_lines)
 
