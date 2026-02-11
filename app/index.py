@@ -69,7 +69,7 @@ class VectorIndex:
     Stores:
     - documents (chunk text)
     - embeddings
-    - metadata (path + line range)
+    - metadata (path + line range + chunk_type)
 
     Beginner note:
     - Chroma is like a database for embeddings.
@@ -146,6 +146,7 @@ class VectorIndex:
                     "rel_path": c.rel_path,
                     "start_line": c.start_line,
                     "end_line": c.end_line,
+                    "chunk_type": c.chunk_type,
                 }
                 for c in buf
             ]
@@ -181,3 +182,12 @@ class VectorIndex:
             n_results=top_k,
             include=["documents", "metadatas", "distances"],
         )
+
+    def get_all_chunks(self):
+        """
+        Return all stored chunks from the collection.
+
+        Used by sparse retrievers that need corpus-wide lexical indexing.
+        """
+        collection = self._get_collection()
+        return collection.get(include=["documents", "metadatas"])

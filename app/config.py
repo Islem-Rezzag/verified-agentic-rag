@@ -11,6 +11,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class AppConfig:
     """
@@ -51,12 +58,29 @@ class AppConfig:
     # Chunking (line-based)
     chunk_size_lines: int = int(os.getenv("RAG_CHUNK_SIZE_LINES", "120"))
     overlap_lines: int = int(os.getenv("RAG_OVERLAP_LINES", "20"))
+    # Metadata-first chunking: create one header chunk from first N lines.
+    # Set to 0 to disable.
+    header_chunk_lines: int = int(os.getenv("RAG_HEADER_CHUNK_LINES", "100"))
 
     # Embeddings
     embedding_model: str = os.getenv("RAG_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
     # Retrieval
     top_k: int = int(os.getenv("RAG_TOP_K", "6"))
+    hybrid_retrieval: bool = _env_bool("RAG_HYBRID_RETRIEVAL", True)
+    sparse_retrieval: bool = _env_bool("RAG_SPARSE_RETRIEVAL", True)
+    dense_candidates_k: int = int(os.getenv("RAG_DENSE_CANDIDATES_K", "30"))
+    sparse_candidates_k: int = int(os.getenv("RAG_SPARSE_CANDIDATES_K", "30"))
+    fused_candidates_k: int = int(os.getenv("RAG_FUSED_CANDIDATES_K", "30"))
+    rrf_k: int = int(os.getenv("RAG_RRF_K", "60"))
+    max_chunks_per_doc: int = int(os.getenv("RAG_MAX_CHUNKS_PER_DOC", "3"))
+
+    # Re-ranker (retrieve -> rerank)
+    rerank_enabled: bool = _env_bool("RAG_RERANK_ENABLED", True)
+    reranker_model: str = os.getenv("RAG_RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+    reranker_batch_size: int = int(os.getenv("RAG_RERANKER_BATCH_SIZE", "16"))
+    reranker_max_chars: int = int(os.getenv("RAG_RERANKER_MAX_CHARS", "1200"))
+    grounded_judge_enabled: bool = _env_bool("RAG_GROUNDED_JUDGE_ENABLED", False)
 
     # Agentic loop settings
     agentic_max_rounds: int = int(os.getenv("RAG_AGENTIC_MAX_ROUNDS", "2"))

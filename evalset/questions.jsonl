@@ -1,4 +1,4 @@
-{"question":"What is the responsible committee for the Data Protection Policy - Employees?","expected":"answer"}
-{"question":"What is the review frequency (or next review date guidance) for the Data Protection Policy - Employees?","expected":"answer"}
-{"question":"What is the policy group for the Provision of IT Equipment & Acceptable Use policy?","expected":"answer"}
+{"question":"What is the responsible committee for the Data Protection Policy - Employees?","expected":"answer","expected_doc":"Data_Protection_-_Employees.txt","expected_value":"PERSONNEL"}
+{"question":"What is the review frequency (or next review date guidance) for the Data Protection Policy - Employees?","expected":"answer","expected_doc":"Data_Protection_-_Employees.txt","expected_value":"Annual or if required by legislation","expected_value_regex":"annual\\s+or\\s+(?:if\\s+)?required\\s+by\\s+legislation"}
+{"question":"What is the policy group for the Provision of IT Equipment & Acceptable Use policy?","expected":"answer","expected_doc":"Provision_of_IT_Acceptable_Use_Policy_Employees_Members.txt","expected_value":"Employees/Members"}
 {"question":"Does this policy pack contain a built-in Kubernetes autoscaler?","expected":"refuse"}

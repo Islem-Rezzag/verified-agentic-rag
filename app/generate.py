@@ -37,6 +37,9 @@ Rules:
 5) Output must be valid JSON only. No markdown, no extra text."""
 
 GRADER_PROMPT = """You are grading whether the retrieved SOURCES are sufficient to answer the question.
+Strict rule:
+- relevant=true ONLY when at least one source label explicitly contains the answer span.
+- If evidence is only likely or indirect, set relevant=false.
 
 Question:
 {question}
@@ -47,6 +50,7 @@ SOURCES (showing only labels and short snippets):
 Return JSON with keys:
 - relevant: boolean
 - reason: string (max 30 words)
+- supporting_labels: array of strings (labels from SOURCES that explicitly contain the answer; empty if not relevant)
 - suggested_rewrite: string (empty if relevant=true)"""
 
 REWRITE_PROMPT = """Rewrite the question into a better search query for retrieving relevant repo chunks.
@@ -75,6 +79,48 @@ Question:
 
 SOURCES:
 {sources_full}
+"""
+
+SUPPORTED_REWRITE_PROMPT = """Your previous answer included unsupported claims.
+Rewrite it so every factual sentence is explicitly supported by SOURCES and cited inline.
+Remove any claim that is not explicitly supported.
+If not enough evidence remains, set cannot_answer=true.
+
+Return JSON with keys:
+- answer: string
+- citations: array of strings (each item is a label like "docs/x.md:10-20" used in the answer)
+- confidence: one of ["high","medium","low"]
+- cannot_answer: boolean
+- follow_ups: array of strings (3 items)
+
+Question:
+{question}
+
+Previous answer:
+{previous_answer}
+
+Unsupported sentences:
+{unsupported_sentences}
+
+SOURCES:
+{sources_full}
+"""
+
+CLAIM_VERIFIER_PROMPT = """Decide if the CLAIM is explicitly supported by the CITED SOURCES.
+Use strict groundedness: no assumptions, no external knowledge, no paraphrase leaps.
+
+Return JSON with keys:
+- supported: boolean
+- reason: string (max 20 words)
+
+Question:
+{question}
+
+CLAIM:
+{claim}
+
+CITED SOURCES:
+{cited_sources}
 """
 
 CITATION_REPAIR_PROMPT = """Your previous answer included invalid citations (citations not present in SOURCES).
@@ -110,6 +156,7 @@ SOURCES:
 class RetrievalGrade(BaseModel):
     relevant: bool
     reason: str
+    supporting_labels: List[str] = Field(default_factory=list)
     suggested_rewrite: str = ""
 
 
@@ -123,6 +170,13 @@ class AnswerOut(BaseModel):
     confidence: Literal["high", "medium", "low"]
     cannot_answer: bool
     follow_ups: List[str] = Field(default_factory=list)
+    model_confidence: Optional[Literal["high", "medium", "low"]] = None
+    computed_confidence: Optional[Literal["high", "medium", "low"]] = None
+
+
+class ClaimSupportOut(BaseModel):
+    supported: bool
+    reason: str = ""
 
 
 def _extract_json(text: str) -> dict:
@@ -194,6 +248,8 @@ def _coerce_answer_payload(data: dict) -> dict:
             "confidence": "low",
             "cannot_answer": True,
             "follow_ups": [],
+            "model_confidence": "low",
+            "computed_confidence": "low",
         }
     answer_val = data.get("answer", "")
     if not isinstance(answer_val, str):
@@ -210,6 +266,11 @@ def _coerce_answer_payload(data: dict) -> dict:
         data["cannot_answer"] = False
     if not isinstance(data.get("follow_ups", None), list):
         data["follow_ups"] = []
+    # Keep model self-reported confidence for debugging, even when computed confidence overrides later.
+    if "model_confidence" not in data:
+        data["model_confidence"] = data.get("confidence", "low")
+    if "computed_confidence" not in data:
+        data["computed_confidence"] = None
     return data
 
 
@@ -282,8 +343,10 @@ class LLMClient:
 
         # Make a short preview so grader prompt stays small
         preview_lines = []
+        allowed_labels = set()
         for c in chunks[:6]:
             label = f"{c.rel_path}:{c.start_line}-{c.end_line}"
+            allowed_labels.add(label)
             snippet = _preview_snippet(c.text, question, max_chars=260)
             preview_lines.append(f"- [{label}] {snippet}")
         preview = "\n".join(preview_lines)
@@ -293,7 +356,10 @@ class LLMClient:
             user=GRADER_PROMPT.format(question=question, sources_preview=preview),
         )
         data = _extract_json(raw)
-        return RetrievalGrade.model_validate(data)
+        grade = RetrievalGrade.model_validate(data)
+        # Strictly keep only labels that actually exist in retrieved sources.
+        grade.supporting_labels = [lab for lab in grade.supporting_labels if lab in allowed_labels]
+        return grade
 
     def rewrite_query(self, question: str) -> str:
         """
@@ -316,13 +382,55 @@ class LLMClient:
         Important:
         - The citations must match the labels present in SOURCES.
         """
-        llm = self._require_llm()
-        sources_full = format_sources_for_prompt(chunks)
+        return self._generate_answer_from_prompt(
+            question=question,
+            chunks=chunks,
+            prompt=ANSWER_PROMPT.format(
+                question=question,
+                sources_full=format_sources_for_prompt(chunks),
+            ),
+        )
 
+    def rewrite_to_supported(
+        self,
+        question: str,
+        chunks: List[RetrievedChunk],
+        previous_answer: str,
+        unsupported_sentences: List[str],
+    ) -> AnswerOut:
+        sources_full = format_sources_for_prompt(chunks)
+        unsupported_block = "\n".join(f"- {s}" for s in unsupported_sentences[:8]) or "- (none)"
+        prompt = SUPPORTED_REWRITE_PROMPT.format(
+            question=question,
+            previous_answer=previous_answer,
+            unsupported_sentences=unsupported_block,
+            sources_full=sources_full,
+        )
+        return self._generate_answer_from_prompt(question=question, chunks=chunks, prompt=prompt)
+
+    def judge_claim_support(self, question: str, claim: str, cited_sources: str) -> ClaimSupportOut:
+        llm = self._require_llm()
         raw = llm.complete(
             system=SYSTEM_PROMPT,
-            user=ANSWER_PROMPT.format(question=question, sources_full=sources_full),
+            user=CLAIM_VERIFIER_PROMPT.format(
+                question=question,
+                claim=claim,
+                cited_sources=cited_sources,
+            ),
         )
+        data = _extract_json(raw)
+        return ClaimSupportOut.model_validate(data)
+
+    def _generate_answer_from_prompt(
+        self,
+        *,
+        question: str,
+        chunks: List[RetrievedChunk],
+        prompt: str,
+    ) -> AnswerOut:
+        llm = self._require_llm()
+        sources_full = format_sources_for_prompt(chunks)
+        raw = llm.complete(system=SYSTEM_PROMPT, user=prompt)
         data = _extract_json(raw)
         out = AnswerOut.model_validate(_coerce_answer_payload(data))
         base_out = out
@@ -345,6 +453,8 @@ class LLMClient:
             payload = _coerce_answer_payload(repaired_data)
             if "confidence" not in repaired_data:
                 payload["confidence"] = base_out.confidence
+            if "model_confidence" not in repaired_data:
+                payload["model_confidence"] = base_out.model_confidence
             if "follow_ups" not in repaired_data:
                 payload["follow_ups"] = base_out.follow_ups
             if ("citations" not in repaired_data) and (len(payload.get("citations", [])) == 0):
@@ -368,6 +478,8 @@ class LLMClient:
             payload = _coerce_answer_payload(repaired_data)
             if "confidence" not in repaired_data:
                 payload["confidence"] = out.confidence
+            if "model_confidence" not in repaired_data:
+                payload["model_confidence"] = out.model_confidence
             if "follow_ups" not in repaired_data:
                 payload["follow_ups"] = out.follow_ups
             if ("citations" not in repaired_data) and (len(payload.get("citations", [])) == 0):
@@ -383,6 +495,11 @@ class LLMClient:
                 confidence="low",
                 cannot_answer=True,
                 follow_ups=[],
+                model_confidence=out.model_confidence or out.confidence,
+                computed_confidence=None,
             )
 
+        # Preserve model confidence snapshot before orchestration computes confidence.
+        if out.model_confidence is None:
+            out.model_confidence = out.confidence
         return out

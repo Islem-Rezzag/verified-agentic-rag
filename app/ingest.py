@@ -64,7 +64,9 @@ def iter_source_files(cfg: AppConfig) -> Iterator[Path]:
 
 def iter_chunks_from_files(cfg: AppConfig, files: Iterable[Path]) -> Iterator[Chunk]:
     """
-    Read each file and yield line-based chunks with metadata.
+    Read each file and yield chunks with metadata.
+
+    Policy-style .txt documents get an extra metadata-first header chunk.
     """
     repo = cfg.repo_path
 
@@ -75,12 +77,16 @@ def iter_chunks_from_files(cfg: AppConfig, files: Iterable[Path]) -> Iterator[Ch
             rel = str(p).replace("\\", "/")
 
         lines = read_file_lines(p)
+        # PDF-extracted policy documents are plain .txt files under docs/txt.
+        # Keep metadata-first chunking focused there.
+        header_lines = cfg.header_chunk_lines if p.suffix.lower() == ".txt" else 0
         yield from chunk_lines(
             lines=lines,
             rel_path=rel,
             source=cfg.source_name,
             chunk_size_lines=cfg.chunk_size_lines,
             overlap_lines=cfg.overlap_lines,
+            header_chunk_lines=header_lines,
         )
 
 
