@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Tuple
 
 from .config import AppConfig
 from .index import VectorIndex
@@ -29,6 +29,18 @@ STOPWORDS = {
     "town",
 }
 
+METADATA_HINT_PATTERNS = [
+    r"\bresponsible committee\b",
+    r"\bpolicy group\b",
+    r"\bresponsible officer\b",
+    r"\blast updated\b",
+    r"\bdate updated\b",
+    r"\bnext review date\b",
+    r"\breview date\b",
+    r"\breview frequency\b",
+    r"\bdocument retention\b",
+]
+
 
 @dataclass(frozen=True)
 class RetrievedChunk:
@@ -52,6 +64,15 @@ class RetrievedChunk:
     rerank_score: Optional[float] = None
 
 
+@dataclass(frozen=True)
+class RetrievalTrace:
+    dense_candidates: List[RetrievedChunk] = field(default_factory=list)
+    sparse_candidates: List[RetrievedChunk] = field(default_factory=list)
+    fused_candidates: List[RetrievedChunk] = field(default_factory=list)
+    reranked_candidates: List[RetrievedChunk] = field(default_factory=list)
+    final_top_k: List[RetrievedChunk] = field(default_factory=list)
+
+
 @dataclass
 class _CandidateChunk:
     chunk_id: str
@@ -72,7 +93,7 @@ def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
 
 
-def _question_mentions_doc(question: str, rel_path: str) -> bool:
+def question_mentions_doc(question: str, rel_path: str) -> bool:
     q = _norm(question)
     title = _norm(Path(rel_path).stem.replace("_", " ").replace("-", " "))
     if not q or not title:
@@ -91,11 +112,33 @@ def _question_mentions_doc(question: str, rel_path: str) -> bool:
     return hits >= required
 
 
+def _is_metadata_question(question: str) -> bool:
+    q = question or ""
+    return any(re.search(p, q, flags=re.IGNORECASE) for p in METADATA_HINT_PATTERNS)
+
+
+def _candidate_to_retrieved(c: _CandidateChunk) -> RetrievedChunk:
+    return RetrievedChunk(
+        chunk_id=c.chunk_id,
+        text=c.text,
+        rel_path=c.rel_path,
+        start_line=c.start_line,
+        end_line=c.end_line,
+        chunk_type=c.chunk_type,
+        distance=c.distance,
+        similarity=c.similarity,
+        dense_rank=c.dense_rank,
+        sparse_rank=c.sparse_rank,
+        fusion_score=c.fusion_score,
+        rerank_score=c.rerank_score,
+    )
+
+
 def _apply_doc_cap(question: str, chunks: List[RetrievedChunk], max_per_doc: int) -> List[RetrievedChunk]:
     if max_per_doc <= 0:
         return chunks
 
-    exempt_docs = {c.rel_path for c in chunks if _question_mentions_doc(question, c.rel_path)}
+    exempt_docs = {c.rel_path for c in chunks if question_mentions_doc(question, c.rel_path)}
     if not chunks:
         return chunks
 
@@ -128,6 +171,7 @@ class Retriever:
         self.cfg = cfg or AppConfig()
         self._sparse_index = sparse_index
         self._reranker = reranker
+        self._all_chunks_by_doc: Optional[Dict[str, List[RetrievedChunk]]] = None
 
         if self._reranker is None and self.cfg.rerank_enabled and self.cfg.reranker_model:
             self._reranker = CrossEncoderReranker(
@@ -142,7 +186,7 @@ class Retriever:
             self._sparse_index = BM25SparseIndex.from_vector_index(self.index)
         return self._sparse_index
 
-    def _dense_candidates(self, query: str, dense_k: int) -> Dict[str, _CandidateChunk]:
+    def _dense_candidates(self, query: str, dense_k: int) -> Tuple[Dict[str, _CandidateChunk], List[_CandidateChunk]]:
         res = self.index.query(query_text=query, top_k=dense_k)
 
         docs = (res.get("documents") or [[]])[0]
@@ -151,12 +195,13 @@ class Retriever:
         ids = (res.get("ids") or [["" for _ in docs]])[0]
 
         out: Dict[str, _CandidateChunk] = {}
+        ranked: List[_CandidateChunk] = []
         for rank, (chunk_id, doc, meta, dist) in enumerate(zip(ids, docs, metas, dists), start=1):
             meta = meta or {}
             chunk_type = str(meta.get("chunk_type", "body")).lower()
             if chunk_type not in {"header", "body"}:
                 chunk_type = "body"
-            out[str(chunk_id)] = _CandidateChunk(
+            cand = _CandidateChunk(
                 chunk_id=str(chunk_id),
                 text=str(doc),
                 rel_path=str(meta.get("rel_path", "")),
@@ -167,23 +212,27 @@ class Retriever:
                 similarity=float(1.0 - float(dist)),
                 dense_rank=rank,
             )
-        return out
+            out[str(chunk_id)] = cand
+            ranked.append(cand)
+        return out, ranked
 
     def _add_sparse_candidates(
         self,
         query: str,
         candidates: Dict[str, _CandidateChunk],
-    ) -> None:
+    ) -> List[_CandidateChunk]:
         sparse_idx = self._ensure_sparse_index()
         if sparse_idx is None:
-            return
+            return []
 
         sparse_hits = sparse_idx.search(query, top_k=self.cfg.sparse_candidates_k)
+        ordered: List[_CandidateChunk] = []
         for hit in sparse_hits:
             existing = candidates.get(hit.chunk_id)
             if existing is not None:
                 if existing.sparse_rank is None:
                     existing.sparse_rank = hit.rank
+                ordered.append(existing)
                 continue
 
             sparse_chunk = sparse_idx.get_chunk(hit.chunk_id)
@@ -203,6 +252,8 @@ class Retriever:
                 similarity=0.0,
                 sparse_rank=hit.rank,
             )
+            ordered.append(candidates[hit.chunk_id])
+        return ordered
 
     def _fuse_candidates(self, candidates: Dict[str, _CandidateChunk]) -> List[_CandidateChunk]:
         for c in candidates.values():
@@ -248,31 +299,116 @@ class Retriever:
             reverse=True,
         )
 
-    def retrieve(self, query: str, top_k: int) -> List[RetrievedChunk]:
+    @staticmethod
+    def _norm_rel_path(rel_path: str) -> str:
+        return (rel_path or "").replace("\\", "/").strip().lower()
+
+    def _load_all_chunks_by_doc(self) -> Dict[str, List[RetrievedChunk]]:
+        if self._all_chunks_by_doc is not None:
+            return self._all_chunks_by_doc
+
+        raw = self.index.get_all_chunks()
+        ids = raw.get("ids") or []
+        docs = raw.get("documents") or []
+        metas = raw.get("metadatas") or []
+
+        by_doc: Dict[str, List[RetrievedChunk]] = {}
+        for chunk_id, doc, meta in zip(ids, docs, metas):
+            meta = meta or {}
+            chunk_type = str(meta.get("chunk_type", "body")).lower()
+            if chunk_type not in {"header", "body"}:
+                chunk_type = "body"
+
+            rel = str(meta.get("rel_path", ""))
+            key = self._norm_rel_path(rel)
+            if not key:
+                continue
+
+            item = RetrievedChunk(
+                chunk_id=str(chunk_id),
+                text=str(doc or ""),
+                rel_path=rel,
+                start_line=int(meta.get("start_line", 0)),
+                end_line=int(meta.get("end_line", 0)),
+                chunk_type=chunk_type,  # type: ignore[arg-type]
+                distance=1.0,
+                similarity=0.0,
+                dense_rank=None,
+                sparse_rank=None,
+                fusion_score=None,
+                rerank_score=None,
+            )
+            by_doc.setdefault(key, []).append(item)
+
+        for chunks in by_doc.values():
+            chunks.sort(key=lambda c: (c.start_line, 0 if c.chunk_type == "header" else 1, c.end_line))
+
+        self._all_chunks_by_doc = by_doc
+        return by_doc
+
+    def get_document_chunks(self, rel_path: str) -> List[RetrievedChunk]:
+        wanted = self._norm_rel_path(rel_path)
+        if not wanted:
+            return []
+
+        by_doc = self._load_all_chunks_by_doc()
+        exact = by_doc.get(wanted)
+        if exact is not None:
+            return list(exact)
+
+        for key, chunks in by_doc.items():
+            if key.endswith(wanted) or wanted.endswith(key):
+                return list(chunks)
+        return []
+
+    def _ensure_metadata_header_chunk(
+        self,
+        *,
+        query: str,
+        selected: List[RetrievedChunk],
+        reranked_all: List[RetrievedChunk],
+        top_k: int,
+    ) -> List[RetrievedChunk]:
+        if top_k <= 0 or not _is_metadata_question(query):
+            return selected
+        if any(c.chunk_type == "header" for c in selected[:top_k]):
+            return selected
+
+        header = next((c for c in reranked_all if c.chunk_type == "header"), None)
+        if header is None:
+            return selected
+
+        boosted = [header]
+        boosted.extend(c for c in selected if c.chunk_id != header.chunk_id)
+        return boosted
+
+    def retrieve_with_trace(self, query: str, top_k: int) -> Tuple[List[RetrievedChunk], RetrievalTrace]:
         dense_k = max(top_k, self.cfg.dense_candidates_k)
-        candidates = self._dense_candidates(query=query, dense_k=dense_k)
-        self._add_sparse_candidates(query=query, candidates=candidates)
+        candidates, dense_ranked = self._dense_candidates(query=query, dense_k=dense_k)
+        sparse_ranked = self._add_sparse_candidates(query=query, candidates=candidates)
 
         fused = self._fuse_candidates(candidates)
         reranked = self._rerank(query=query, candidates=fused)
+        reranked_retrieved = [_candidate_to_retrieved(c) for c in reranked]
 
-        retrieved = [
-            RetrievedChunk(
-                chunk_id=c.chunk_id,
-                text=c.text,
-                rel_path=c.rel_path,
-                start_line=c.start_line,
-                end_line=c.end_line,
-                chunk_type=c.chunk_type,
-                distance=c.distance,
-                similarity=c.similarity,
-                dense_rank=c.dense_rank,
-                sparse_rank=c.sparse_rank,
-                fusion_score=c.fusion_score,
-                rerank_score=c.rerank_score,
-            )
-            for c in reranked
-        ]
+        capped = _apply_doc_cap(query, reranked_retrieved, max_per_doc=self.cfg.max_chunks_per_doc)
+        adjusted = self._ensure_metadata_header_chunk(
+            query=query,
+            selected=capped,
+            reranked_all=reranked_retrieved,
+            top_k=top_k,
+        )
+        final = adjusted[:top_k]
 
-        capped = _apply_doc_cap(query, retrieved, max_per_doc=self.cfg.max_chunks_per_doc)
-        return capped[:top_k]
+        trace = RetrievalTrace(
+            dense_candidates=[_candidate_to_retrieved(c) for c in dense_ranked[:dense_k]],
+            sparse_candidates=[_candidate_to_retrieved(c) for c in sparse_ranked[: self.cfg.sparse_candidates_k]],
+            fused_candidates=[_candidate_to_retrieved(c) for c in fused],
+            reranked_candidates=reranked_retrieved,
+            final_top_k=final,
+        )
+        return final, trace
+
+    def retrieve(self, query: str, top_k: int) -> List[RetrievedChunk]:
+        retrieved, _trace = self.retrieve_with_trace(query=query, top_k=top_k)
+        return retrieved

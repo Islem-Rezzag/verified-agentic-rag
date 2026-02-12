@@ -1,0 +1,161 @@
+{
+  "generated_at": "2026-02-08T16:50:00",
+  "baseline_window": "2026-01-31",
+  "after_upgrade_window": "2026-02-08",
+  "questions": {
+    "Q1": {
+      "expected": "answer",
+      "question": "What is the responsible committee for the Data Protection Policy - Employees?",
+      "before": {
+        "log_file": "20260131-230041_b3bdcc6e20.json",
+        "attempts": 1,
+        "final_query_used": "What is the responsible committee for the Data Protection Policy - Employees?",
+        "retrieval_grade_reason": "Source explicitly states “RESPONSIBLE COMMITTEE: PERSONNEL” for the Data Protection Policy - Employees, so it directly answers the question.",
+        "answer": "The responsible committee for the Data Protection Policy - Employees is PERSONNEL.[docs/txt/Data_Protection_-_Employees.txt:1-120]",
+        "cannot_answer": false,
+        "confidence": "high",
+        "citations": [
+          "docs/txt/Data_Protection_-_Employees.txt:1-120"
+        ],
+        "old_simple_eval_pass": true
+      },
+      "after": {
+        "log_file": "20260208-164306_b3bdcc6e20.json",
+        "attempts": 1,
+        "final_query_used": "What is the responsible committee for the Data Protection Policy - Employees?",
+        "retrieval_grade_reason": "The Data Protection Policy - Employees source explicitly states the responsible committee as PERSONNEL.",
+        "supporting_labels": [
+          "docs/txt/Data_Protection_-_Employees.txt:1-100",
+          "docs/txt/Data_Protection_-_Employees.txt:1-120"
+        ],
+        "verification_all_supported": true,
+        "answer": "The responsible committee is PERSONNEL.[docs/txt/Data_Protection_-_Employees.txt:1-100]",
+        "cannot_answer": false,
+        "confidence": "high",
+        "model_confidence": "high",
+        "computed_confidence": "high",
+        "citations": [
+          "docs/txt/Data_Protection_-_Employees.txt:1-100"
+        ],
+        "strict_expected_behavior_pass": true
+      }
+    },
+    "Q2": {
+      "expected": "answer",
+      "question": "What is the review frequency (or next review date guidance) for the Data Protection Policy - Employees?",
+      "before": {
+        "log_file": "20260131-230049_2615c92cbb.json",
+        "attempts": 1,
+        "final_query_used": "What is the review frequency (or next review date guidance) for the Data Protection Policy - Employees?",
+        "retrieval_grade_reason": "The Data_Protection_-_Employees.txt source includes policy metadata (e.g., “Last updated 03/2024” and likely “Current Document Review Date”), which should contain review frequency/next review date guidance.",
+        "answer": "The Data Protection Policy - Employees should be reviewed annually, or earlier if required by legislation.[docs/txt/Data_Protection_-_Employees.txt:1-120]",
+        "cannot_answer": false,
+        "confidence": "low",
+        "citations": [
+          "docs/txt/Data_Protection_-_Employees.txt:1-120"
+        ],
+        "old_simple_eval_pass": true
+      },
+      "after": {
+        "log_file": "20260208-164324_2615c92cbb.json",
+        "attempts": 2,
+        "final_query_used": "Provide the 'Current Document Status' section (including review frequency/next review date) from Data_Protection_-_Employees.txt, or the page/lines where review schedule is stated.",
+        "retrieval_grade_reason": "Snippets only show headers and partial 'Current Document Status' without any review frequency or next review date guidance for the Data Protection Policy - Employees.",
+        "supporting_labels": [],
+        "verification_all_supported": null,
+        "answer": "I cannot answer from the repository based on the retrieved sources.",
+        "cannot_answer": true,
+        "confidence": "low",
+        "model_confidence": "low",
+        "computed_confidence": "low",
+        "citations": [],
+        "strict_expected_behavior_pass": false
+      }
+    },
+    "Q3": {
+      "expected": "answer",
+      "question": "What is the policy group for the Provision of IT Equipment & Acceptable Use policy?",
+      "before": {
+        "log_file": "20260131-230054_2aad852dc8.json",
+        "attempts": 1,
+        "final_query_used": "What is the policy group for the Provision of IT Equipment & Acceptable Use policy?",
+        "retrieval_grade_reason": "The source explicitly states “Policy Group: Employees/Members” for the Provision of IT Equipment & Acceptable Use policy, directly answering the question. [docs/txt/Provision_of_IT_Acceptable_Use_Policy_Employees_Members.txt:1-120]",
+        "answer": "The policy group for the Provision of IT Equipment & Acceptable Use policy is Employees/Members.[docs/txt/Provision_of_IT_Acceptable_Use_Policy_Employees_Members.txt:1-120]",
+        "cannot_answer": false,
+        "confidence": "high",
+        "citations": [
+          "docs/txt/Provision_of_IT_Acceptable_Use_Policy_Employees_Members.txt:1-120"
+        ],
+        "old_simple_eval_pass": true
+      },
+      "after": {
+        "log_file": "20260208-164337_2aad852dc8.json",
+        "attempts": 1,
+        "final_query_used": "What is the policy group for the Provision of IT Equipment & Acceptable Use policy?",
+        "retrieval_grade_reason": "The source explicitly states the policy group as “Employees/Members” on page 1, directly answering the question.",
+        "supporting_labels": [
+          "docs/txt/Provision_of_IT_Acceptable_Use_Policy_Employees_Members.txt:1-100",
+          "docs/txt/Provision_of_IT_Acceptable_Use_Policy_Employees_Members.txt:1-120"
+        ],
+        "verification_all_supported": true,
+        "answer": "The policy group is Employees/Members.[docs/txt/Provision_of_IT_Acceptable_Use_Policy_Employees_Members.txt:1-100]",
+        "cannot_answer": false,
+        "confidence": "high",
+        "model_confidence": "high",
+        "computed_confidence": "high",
+        "citations": [
+          "docs/txt/Provision_of_IT_Acceptable_Use_Policy_Employees_Members.txt:1-100"
+        ],
+        "strict_expected_behavior_pass": true
+      }
+    },
+    "Q4": {
+      "expected": "refuse",
+      "question": "Does this policy pack contain a built-in Kubernetes autoscaler?",
+      "before": {
+        "log_file": "20260131-230100_302b4aab5d.json",
+        "attempts": 2,
+        "final_query_used": "Retrieve sources from the policy pack repository (e.g., README, pack metadata, Kubernetes-related docs, or configuration files) that mention autoscaling or Kubernetes components.",
+        "retrieval_grade_reason": "Sources are HR/IT/data protection council policies and handbook excerpts; none mention Kubernetes, policy packs, or autoscalers, so they can’t answer the question.",
+        "answer": "I cannot answer from the repository based on the retrieved sources.",
+        "cannot_answer": true,
+        "confidence": "low",
+        "citations": [],
+        "old_simple_eval_pass": true
+      },
+      "after": {
+        "log_file": "20260208-164355_302b4aab5d.json",
+        "attempts": 2,
+        "final_query_used": "Provide sources from the policy pack that mention Kubernetes components (e.g., autoscaler, HPA, Cluster Autoscaler) or an index/manifest listing included built-in tools.",
+        "retrieval_grade_reason": "All sources are HR/IT council policy documents; none mention Kubernetes, autoscaling, or a built-in Kubernetes autoscaler, so the answer span is not present.",
+        "supporting_labels": [],
+        "verification_all_supported": null,
+        "answer": "I cannot answer from the repository based on the retrieved sources.",
+        "cannot_answer": true,
+        "confidence": "low",
+        "model_confidence": "low",
+        "computed_confidence": "low",
+        "citations": [],
+        "strict_expected_behavior_pass": true
+      }
+    }
+  },
+  "eval_summary": {
+    "full_mode": {
+      "pass_overall": 3,
+      "total": 4,
+      "accuracy": 0.75
+    },
+    "retrieval_mode": {
+      "pass_overall": 3,
+      "total": 4,
+      "accuracy": 0.75
+    },
+    "before_simple_estimate": {
+      "pass_overall": 4,
+      "total": 4,
+      "accuracy": 1.0,
+      "rule": "expected=answer => not cannot_answer and has citation; expected=refuse => cannot_answer"
+    }
+  }
+}

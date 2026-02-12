@@ -151,3 +151,251 @@ def test_run_eval_full_mode_checks_verification(tmp_path, monkeypatch):
     assert row["pass_expected_value_rule"] is True
     assert row["pass_verification_rule"] is True
     assert row["pass_overall"] is True
+
+
+def test_run_eval_full_mode_computes_evidence_and_citation_overlap(tmp_path, monkeypatch):
+    eval_path = tmp_path / "gold.jsonl"
+    out_path = tmp_path / "results.json"
+    eval_path.write_text(
+        json.dumps(
+            {
+                "id": "q1",
+                "question": "What is the responsible committee?",
+                "expected_behavior": "answer",
+                "question_type": "metadata",
+                "expected_doc": "Data_Protection_-_Employees.txt",
+                "expected_answer": "PERSONNEL",
+                "gold_evidence": [
+                    {"label": "docs/txt/Data_Protection_-_Employees.txt:1-120", "must_contain": ["PERSONNEL"]}
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def fake_ask_question(cfg, question: str, debug: bool = False, no_llm: bool = False):
+        return SimpleNamespace(
+            retrieved=[
+                _chunk(
+                    chunk_id="c1",
+                    text="RESPONSIBLE COMMITTEE: PERSONNEL",
+                    rel_path="docs/txt/Data_Protection_-_Employees.txt",
+                    start_line=1,
+                    end_line=100,
+                )
+            ],
+            answer=SimpleNamespace(
+                answer="The responsible committee is PERSONNEL.[docs/txt/Data_Protection_-_Employees.txt:1-100]",
+                cannot_answer=False,
+                confidence="high",
+                model_confidence="high",
+                computed_confidence="high",
+            ),
+            verification={"all_supported": True},
+            retrieval_trace=None,
+        )
+
+    monkeypatch.setattr(evals, "ask_question", fake_ask_question)
+    monkeypatch.setattr(evals, "_build_corpus_cache", lambda cfg: {"docs/txt/a.txt": "PERSONNEL"})
+    evals.run_eval(eval_path=str(eval_path), output_path=str(out_path), mode="full")
+
+    row = json.loads(out_path.read_text(encoding="utf-8"))[0]
+    assert row["evidence_recall_at_k"] == 1.0
+    assert row["evidence_mrr"] == 1.0
+    assert row["citation_overlaps_gold_evidence"] is True
+    assert row["pass_citation_overlap_rule"] is True
+
+
+def test_run_eval_retrieval_mode_flags_retrieval_missed_existing_value(tmp_path, monkeypatch):
+    eval_path = tmp_path / "questions.jsonl"
+    out_path = tmp_path / "results.json"
+    eval_path.write_text(
+        json.dumps(
+            {
+                "question": "What is the responsible committee?",
+                "expected": "answer",
+                "expected_doc": "Data_Protection_-_Employees.txt",
+                "expected_value": "PERSONNEL",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def fake_ask_question(cfg, question: str, debug: bool = False, no_llm: bool = False):
+        return SimpleNamespace(
+            retrieved=[
+                _chunk(
+                    chunk_id="c1",
+                    text="This chunk does not include the expected value.",
+                    rel_path="docs/txt/Data_Protection_-_Employees.txt",
+                )
+            ],
+            answer=SimpleNamespace(
+                answer="LLM disabled. Showing retrieved sources only.",
+                cannot_answer=True,
+                confidence="low",
+                model_confidence="low",
+                computed_confidence="low",
+            ),
+            verification=None,
+            retrieval_trace=None,
+        )
+
+    monkeypatch.setattr(evals, "ask_question", fake_ask_question)
+    monkeypatch.setattr(evals, "_build_corpus_cache", lambda cfg: {"docs/txt/full.txt": "PERSONNEL appears in corpus"})
+    evals.run_eval(eval_path=str(eval_path), output_path=str(out_path), mode="retrieval")
+
+    row = json.loads(out_path.read_text(encoding="utf-8"))[0]
+    assert row["corpus_contains_expected_value"] is True
+    assert row["retrieval_contains_expected_value"] is False
+    assert row["retrieval_missed_existing_value"] is True
+
+
+def test_run_eval_gold_silver_writes_combined_report(tmp_path, monkeypatch):
+    gold_path = tmp_path / "gold.jsonl"
+    silver_path = tmp_path / "silver.jsonl"
+    out_path = tmp_path / "suite.json"
+
+    gold_path.write_text(
+        json.dumps(
+            {
+                "id": "gold1",
+                "question": "What is the responsible committee?",
+                "expected_behavior": "answer",
+                "question_type": "metadata",
+                "expected_doc": "Data_Protection_-_Employees.txt",
+                "expected_answer": "PERSONNEL",
+                "gold_evidence": [{"label": "docs/txt/Data_Protection_-_Employees.txt:1-120"}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    silver_path.write_text(
+        json.dumps(
+            {
+                "id": "silver1",
+                "question": "Does this policy corpus include a Kubernetes autoscaler?",
+                "expected_behavior": "refuse",
+                "question_type": "out_of_scope",
+                "expected_answer": None,
+                "gold_evidence": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def fake_ask_question(cfg, question: str, debug: bool = False, no_llm: bool = False):
+        if "autoscaler" in question.lower():
+            return SimpleNamespace(
+                retrieved=[],
+                answer=SimpleNamespace(
+                    answer="LLM disabled. Showing retrieved sources only.",
+                    cannot_answer=True,
+                    confidence="low",
+                    model_confidence="low",
+                    computed_confidence="low",
+                ),
+                verification=None,
+                retrieval_trace=None,
+            )
+        return SimpleNamespace(
+            retrieved=[
+                _chunk(
+                    chunk_id="c1",
+                    text="RESPONSIBLE COMMITTEE: PERSONNEL",
+                    rel_path="docs/txt/Data_Protection_-_Employees.txt",
+                )
+            ],
+            answer=SimpleNamespace(
+                answer="LLM disabled. Showing retrieved sources only.",
+                cannot_answer=True,
+                confidence="low",
+                model_confidence="low",
+                computed_confidence="low",
+            ),
+            verification=None,
+            retrieval_trace=None,
+        )
+
+    monkeypatch.setattr(evals, "ask_question", fake_ask_question)
+    monkeypatch.setattr(evals, "_build_corpus_cache", lambda cfg: {"docs/txt/a.txt": "PERSONNEL"})
+    evals.run_eval_gold_silver(
+        gold_path=str(gold_path),
+        silver_path=str(silver_path),
+        output_path=str(out_path),
+        mode="retrieval",
+    )
+
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert "gold" in payload and "silver" in payload
+    assert payload["gold"]["summary"]["count"] == 1
+    assert payload["silver"]["summary"]["count"] == 1
+
+
+def test_extract_gold_labels_ignores_none_expected_doc():
+    labels = evals._extract_gold_labels(  # type: ignore[attr-defined]
+        {"expected_doc": None, "gold_evidence": []}
+    )
+    assert labels == []
+
+
+def test_evidence_metrics_ndcg_is_capped_with_duplicate_hits():
+    metrics = evals._evidence_metrics(  # type: ignore[attr-defined]
+        [
+            "docs/txt/Policy.txt:1-50",
+            "docs/txt/Policy.txt:51-100",
+            "docs/txt/Policy.txt:101-150",
+        ],
+        ["docs/txt/Policy.txt:1-150"],
+    )
+
+    assert metrics["evidence_recall_at_k"] == 1.0
+    assert metrics["evidence_mrr"] == 1.0
+    assert metrics["evidence_ndcg_at_k"] == 1.0
+    assert 0.0 <= (metrics["context_precision_ranked"] or 0.0) <= 1.0
+
+
+def test_refuse_question_does_not_require_evidence_recall(tmp_path, monkeypatch):
+    eval_path = tmp_path / "gold.jsonl"
+    out_path = tmp_path / "results.json"
+    eval_path.write_text(
+        json.dumps(
+            {
+                "id": "q_refuse",
+                "question": "Does this corpus include Kubernetes HPA?",
+                "expected_behavior": "refuse",
+                "question_type": "out_of_scope",
+                "expected_doc": None,
+                "gold_evidence": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def fake_ask_question(cfg, question: str, debug: bool = False, no_llm: bool = False):
+        return SimpleNamespace(
+            retrieved=[],
+            answer=SimpleNamespace(
+                answer="I cannot answer from the repository based on the retrieved sources.",
+                cannot_answer=True,
+                confidence="low",
+                model_confidence="low",
+                computed_confidence="low",
+            ),
+            verification=None,
+            retrieval_trace=None,
+        )
+
+    monkeypatch.setattr(evals, "ask_question", fake_ask_question)
+    monkeypatch.setattr(evals, "_build_corpus_cache", lambda cfg: {"docs/txt/a.txt": "policy"})
+    evals.run_eval(eval_path=str(eval_path), output_path=str(out_path), mode="full")
+
+    row = json.loads(out_path.read_text(encoding="utf-8"))[0]
+    assert row["evidence_recall_at_k"] is None
+    assert row["pass_evidence_recall_rule"] is True
+    assert row["pass_overall"] is True

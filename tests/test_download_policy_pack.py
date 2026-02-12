@@ -32,6 +32,34 @@ def test_detect_and_strip_repeated_margin_lines():
     assert cleaned[2] == ["Body line C"]
 
 
+def test_repair_current_document_status_table_reconstructs_next_review_date():
+    raw = (
+        "Current Document Status\n\n"
+        "164/24/25a(2) Annual or if\n"
+        "Minute no. Next review date required by\n"
+        "legislation\n"
+    )
+
+    repaired = dpp._repair_current_document_status_table(raw)
+
+    assert "Next review date: Annual or if required by legislation" in repaired
+    assert "Minute no. Next review date required by" not in repaired
+
+
+def test_repair_current_document_status_table_preserves_as_required_variant():
+    raw = (
+        "Current Document Status\n\n"
+        "Annual or as\n"
+        "Minute no. 146/25/26 Next review date required by\n"
+        "legislation\n"
+    )
+
+    repaired = dpp._repair_current_document_status_table(raw)
+
+    assert "Next review date: Annual or as required by legislation" in repaired
+    assert "Annual or if required by legislation" not in repaired
+
+
 def test_pdf_to_text_uses_layout_mode_and_page_markers(monkeypatch):
     class FakePage:
         def __init__(self, text: str):

@@ -196,3 +196,34 @@ def test_doc_cap_limits_redundancy_unless_specific_policy_is_mentioned():
 
     specific = retriever.retrieve("For Data Protection - Employees, what is the review frequency?", top_k=4)
     assert len([c for c in specific if "Data_Protection_-_Employees" in c.rel_path]) == 3
+
+
+def test_metadata_query_keeps_header_chunk_even_when_reranker_prefers_body():
+    dense_res = {
+        "ids": [["h1", "b1"]],
+        "documents": [["Policy Group: Employees/Members", "Detailed body paragraph"]],
+        "metadatas": [[
+            {"rel_path": "docs/txt/policy.txt", "start_line": 1, "end_line": 100, "chunk_type": "header"},
+            {"rel_path": "docs/txt/policy.txt", "start_line": 101, "end_line": 220, "chunk_type": "body"},
+        ]],
+        "distances": [[0.1, 0.11]],
+    }
+    idx = FakeIndex(dense_res, key_name="metadata_header_test")
+    reranker = FakeReranker({"Policy Group: Employees/Members": 0.1, "Detailed body paragraph": 0.9})
+    retriever = Retriever(
+        index=idx,
+        cfg=_cfg(
+            hybrid_retrieval=False,
+            sparse_retrieval=False,
+            rerank_enabled=True,
+            reranker_model="fake",
+            max_chunks_per_doc=10,
+        ),
+        reranker=reranker,
+    )
+
+    out = retriever.retrieve("What is the policy group?", top_k=1)
+
+    assert len(out) == 1
+    assert out[0].chunk_type == "header"
+    assert out[0].chunk_id == "h1"

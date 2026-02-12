@@ -1,0 +1,95 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-and-eval:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+      GOLD_MIN_PASS_RATE: "0.75"
+      RAG_SCOPE: docs
+      RAG_SOURCE_NAME: saltash_policy_pack
+      RAG_REPO_PATH: data/source_repos/saltash_policy_pack
+      RAG_COLLECTION_NAME: saltash_policy_docs_ci
+      RAG_PERSIST_DIR: data/vector_store_ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: python -m pytest -q
+
+      - name: Build retrieval index
+        run: |
+          python - <<'PY'
+          from app.config import AppConfig
+          from app.index import VectorIndex
+          from app.ingest import ingest
+
+          cfg = AppConfig()
+          cfg.ensure_dirs()
+          idx = VectorIndex(cfg.persist_dir, cfg.collection_name, cfg.embedding_model)
+          idx.reset_collection()
+          total = idx.upsert_chunks(ingest(cfg), batch_size=64)
+          print(f"Indexed chunks: {total}")
+          PY
+
+      - name: Run gold/silver eval (full mode)
+        if: ${{ env.OPENAI_API_KEY != '' && env.OPENAI_MODEL != '' }}
+        run: |
+          python - <<'PY'
+          from app.evals import run_eval_gold_silver
+
+          run_eval_gold_silver(
+              gold_path="evalset/gold.jsonl",
+              silver_path="evalset/silver.jsonl",
+              output_path="data/eval_results_ci_full.json",
+              mode="full",
+          )
+          PY
+
+      - name: Gate on gold pass rate
+        if: ${{ env.OPENAI_API_KEY != '' && env.OPENAI_MODEL != '' }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          with open("data/eval_results_ci_full.json", "r", encoding="utf-8") as f:
+              payload = json.load(f)
+
+          pass_rate = float(payload["gold"]["summary"]["pass_rate"])
+          threshold = float(os.getenv("GOLD_MIN_PASS_RATE", "0.75"))
+          print(f"Gold pass rate: {pass_rate:.3f} (threshold={threshold:.3f})")
+          if pass_rate < threshold:
+              sys.exit("Gold pass rate dropped below threshold")
+          PY
+
+      - name: Run retrieval-only eval when OpenAI secrets are unavailable
+        if: ${{ env.OPENAI_API_KEY == '' || env.OPENAI_MODEL == '' }}
+        run: |
+          python - <<'PY'
+          from app.evals import run_eval_gold_silver
+
+          run_eval_gold_silver(
+              gold_path="evalset/gold.jsonl",
+              silver_path="evalset/silver.jsonl",
+              output_path="data/eval_results_ci_retrieval.json",
+              mode="retrieval",
+          )
+          PY

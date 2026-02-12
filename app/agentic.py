@@ -4,14 +4,19 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from .config import AppConfig
 from .index import VectorIndex
-from .retrieve import Retriever, RetrievedChunk
+from .retrieve import RetrievalTrace, Retriever, RetrievedChunk, question_mentions_doc
 from .generate import LLMClient, AnswerOut
 from .cite import allowed_labels_from_chunks, validate_citations
-from .policy_fields import extract_policy_field, format_extracted_answer
+from .policy_fields import (
+    PolicyFieldMatch,
+    detect_policy_field_question,
+    extract_policy_field,
+    format_extracted_answer,
+)
 from .verify import verify_answer_grounding, VerificationResult
 
 
@@ -25,6 +30,7 @@ class AgentRun:
     retrieval_grade_reason: str = ""
     retrieval_supporting_labels: List[str] = field(default_factory=list)
     verification: Optional[Dict[str, Any]] = None
+    retrieval_trace: Optional[RetrievalTrace] = None
 
 
 def _now_ts() -> str:
@@ -64,6 +70,49 @@ def _to_confidence_level(
     return "low"
 
 
+def _best_matching_doc(question: str, retrieved: List[RetrievedChunk]) -> Optional[str]:
+    if not retrieved:
+        return None
+
+    mentioned = [c.rel_path for c in retrieved if question_mentions_doc(question, c.rel_path)]
+    if mentioned:
+        return mentioned[0]
+
+    scores: Dict[str, float] = {}
+    n = len(retrieved)
+    for idx, c in enumerate(retrieved, start=1):
+        rank_bonus = float(n - idx + 1)
+        sim_bonus = max(0.0, float(c.similarity))
+        header_bonus = 0.5 if c.chunk_type == "header" else 0.0
+        scores[c.rel_path] = scores.get(c.rel_path, 0.0) + rank_bonus + sim_bonus + header_bonus
+
+    return max(scores.items(), key=lambda x: x[1])[0]
+
+
+def _extract_policy_field_with_doc_scan(
+    *,
+    question: str,
+    retrieved: List[RetrievedChunk],
+    retriever: Retriever,
+) -> Optional[PolicyFieldMatch]:
+    if detect_policy_field_question(question) is None:
+        return None
+
+    direct = extract_policy_field(question=question, chunks=retrieved)
+    if direct is not None:
+        return direct
+
+    best_doc = _best_matching_doc(question, retrieved)
+    if not best_doc:
+        return None
+
+    doc_chunks = retriever.get_document_chunks(best_doc)
+    if not doc_chunks:
+        return None
+
+    return extract_policy_field(question=question, chunks=doc_chunks)
+
+
 def ask_question(cfg: AppConfig, question: str, debug: bool = False, no_llm: bool = False) -> AgentRun:
     """
     Main entry point for your agentic RAG.
@@ -91,10 +140,12 @@ def ask_question(cfg: AppConfig, question: str, debug: bool = False, no_llm: boo
     grade_reason = ""
     grade_supporting_labels: List[str] = []
     retrieval_relevant = False
+    retrieval_trace = RetrievalTrace()
+    deterministic_match: Optional[PolicyFieldMatch] = None
 
     if no_llm:
         # Retrieval-only mode: useful before you have an API key.
-        retrieved = retriever.retrieve(query=question, top_k=cfg.top_k)
+        retrieved, retrieval_trace = retriever.retrieve_with_trace(query=question, top_k=cfg.top_k)
         dummy = AnswerOut(
             answer="LLM disabled. Showing retrieved sources only.",
             citations=[],
@@ -113,6 +164,7 @@ def ask_question(cfg: AppConfig, question: str, debug: bool = False, no_llm: boo
             retrieval_grade_reason="LLM disabled",
             retrieval_supporting_labels=[],
             verification=None,
+            retrieval_trace=retrieval_trace,
         )
         _log_run(cfg, run)
         return run
@@ -123,7 +175,7 @@ def ask_question(cfg: AppConfig, question: str, debug: bool = False, no_llm: boo
     query = question
     for attempt in range(cfg.agentic_max_rounds):
         attempts += 1
-        retrieved = retriever.retrieve(query=query, top_k=cfg.top_k)
+        retrieved, retrieval_trace = retriever.retrieve_with_trace(query=query, top_k=cfg.top_k)
 
         if debug:
             print("\n--- Retrieved chunks ---")
@@ -134,6 +186,18 @@ def ask_question(cfg: AppConfig, question: str, debug: bool = False, no_llm: boo
                     f"  d_rank={c.dense_rank} s_rank={c.sparse_rank}"
                     f"  fuse={c.fusion_score} rerank={c.rerank_score}"
                 )
+
+        deterministic_match = _extract_policy_field_with_doc_scan(
+            question=question,
+            retrieved=retrieved,
+            retriever=retriever,
+        )
+        if deterministic_match is not None:
+            retrieval_relevant = True
+            grade_reason = "deterministic metadata extraction matched"
+            grade_supporting_labels = [deterministic_match.label]
+            final_query = query
+            break
 
         grade = llm.grade_retrieval(question=question, chunks=retrieved)
         grade_reason = grade.reason
@@ -173,17 +237,17 @@ def ask_question(cfg: AppConfig, question: str, debug: bool = False, no_llm: boo
             retrieval_grade_reason=grade_reason,
             retrieval_supporting_labels=grade_supporting_labels,
             verification=None,
+            retrieval_trace=retrieval_trace,
         )
         _log_run(cfg, run)
         return run
 
-    extracted = extract_policy_field(question=question, chunks=retrieved)
-    extraction_used = extracted is not None
-    if extracted is not None:
+    extraction_used = deterministic_match is not None
+    if deterministic_match is not None:
         # Deterministic value extraction for policy metadata questions.
         answer = AnswerOut(
-            answer=format_extracted_answer(question, extracted),
-            citations=[extracted.label],
+            answer=format_extracted_answer(question, deterministic_match),
+            citations=[deterministic_match.label],
             confidence="high",
             cannot_answer=False,
             follow_ups=[],
@@ -270,6 +334,7 @@ def ask_question(cfg: AppConfig, question: str, debug: bool = False, no_llm: boo
                 for c in verification.checks
             ],
         },
+        retrieval_trace=retrieval_trace,
     )
     _log_run(cfg, run)
     return run
@@ -308,6 +373,89 @@ def _log_run(cfg: AppConfig, run: AgentRun) -> None:
         "answer": run.answer.model_dump(),
         "verification": run.verification,
     }
+    if run.retrieval_trace is not None:
+        payload["retrieval_trace"] = {
+            "dense_candidates": [
+                {
+                    "chunk_id": c.chunk_id,
+                    "rel_path": c.rel_path,
+                    "start_line": c.start_line,
+                    "end_line": c.end_line,
+                    "chunk_type": c.chunk_type,
+                    "distance": c.distance,
+                    "similarity": c.similarity,
+                    "dense_rank": c.dense_rank,
+                    "sparse_rank": c.sparse_rank,
+                    "fusion_score": c.fusion_score,
+                    "rerank_score": c.rerank_score,
+                }
+                for c in run.retrieval_trace.dense_candidates
+            ],
+            "sparse_candidates": [
+                {
+                    "chunk_id": c.chunk_id,
+                    "rel_path": c.rel_path,
+                    "start_line": c.start_line,
+                    "end_line": c.end_line,
+                    "chunk_type": c.chunk_type,
+                    "distance": c.distance,
+                    "similarity": c.similarity,
+                    "dense_rank": c.dense_rank,
+                    "sparse_rank": c.sparse_rank,
+                    "fusion_score": c.fusion_score,
+                    "rerank_score": c.rerank_score,
+                }
+                for c in run.retrieval_trace.sparse_candidates
+            ],
+            "fused_candidates": [
+                {
+                    "chunk_id": c.chunk_id,
+                    "rel_path": c.rel_path,
+                    "start_line": c.start_line,
+                    "end_line": c.end_line,
+                    "chunk_type": c.chunk_type,
+                    "distance": c.distance,
+                    "similarity": c.similarity,
+                    "dense_rank": c.dense_rank,
+                    "sparse_rank": c.sparse_rank,
+                    "fusion_score": c.fusion_score,
+                    "rerank_score": c.rerank_score,
+                }
+                for c in run.retrieval_trace.fused_candidates
+            ],
+            "reranked_candidates": [
+                {
+                    "chunk_id": c.chunk_id,
+                    "rel_path": c.rel_path,
+                    "start_line": c.start_line,
+                    "end_line": c.end_line,
+                    "chunk_type": c.chunk_type,
+                    "distance": c.distance,
+                    "similarity": c.similarity,
+                    "dense_rank": c.dense_rank,
+                    "sparse_rank": c.sparse_rank,
+                    "fusion_score": c.fusion_score,
+                    "rerank_score": c.rerank_score,
+                }
+                for c in run.retrieval_trace.reranked_candidates
+            ],
+            "final_top_k": [
+                {
+                    "chunk_id": c.chunk_id,
+                    "rel_path": c.rel_path,
+                    "start_line": c.start_line,
+                    "end_line": c.end_line,
+                    "chunk_type": c.chunk_type,
+                    "distance": c.distance,
+                    "similarity": c.similarity,
+                    "dense_rank": c.dense_rank,
+                    "sparse_rank": c.sparse_rank,
+                    "fusion_score": c.fusion_score,
+                    "rerank_score": c.rerank_score,
+                }
+                for c in run.retrieval_trace.final_top_k
+            ],
+        }
 
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)

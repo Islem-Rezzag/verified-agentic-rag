@@ -46,6 +46,10 @@ UNICODE_TRANSLATIONS = str.maketrans(
     }
 )
 
+_STATUS_REVIEW_ROW_RE = re.compile(
+    r"(?is)\b(?:\d[\w/().-]*\s+)?annual(?:ly)?\s+or\s+(?P<qualifier>if|as)\s+(?:minute\s+no\.?\s*)?(?:\d[\w/().-]*\s*)?next\s+review\s+date\s+required\s+by\s+legislation\b"
+)
+
 
 def _safe_name(url: str) -> str:
     name = unquote(urlparse(url).path.split("/")[-1])
@@ -172,6 +176,21 @@ def _extract_page_text(page) -> str:
         return page.extract_text() or ""
 
 
+def _repair_current_document_status_table(text: str) -> str:
+    """
+    Repair common column-interleaving artifacts in "Current Document Status" tables.
+    """
+    if "current document status" not in (text or "").lower():
+        return text
+
+    def _repl(m: re.Match[str]) -> str:
+        qualifier = (m.group("qualifier") or "if").lower()
+        return f"Next review date: Annual or {qualifier} required by legislation"
+
+    out = _STATUS_REVIEW_ROW_RE.sub(_repl, text)
+    return out
+
+
 def pdf_to_text(pdf_path: Path) -> str:
     reader = PdfReader(str(pdf_path))
     page_lines: List[List[str]] = []
@@ -187,6 +206,7 @@ def pdf_to_text(pdf_path: Path) -> str:
     for i, lines in enumerate(page_lines, start=1):
         cleaned_lines = _strip_margin_repeats(lines, repeated_margins)
         page_text = "\n".join(cleaned_lines).strip()
+        page_text = _repair_current_document_status_table(page_text)
         parts.append(f"\n\n=== Page {i} ===\n{page_text}")
 
     return "\n".join(parts).strip() + "\n"

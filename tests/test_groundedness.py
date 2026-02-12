@@ -142,3 +142,73 @@ def test_detect_policy_field_question():
     field = detect_policy_field_question("What is the review frequency for this policy?")
     assert field is not None
     assert field[0] == "review_frequency"
+
+
+def test_extract_policy_field_handles_interleaved_status_table_text():
+    chunk = _chunk(
+        chunk_id="h2",
+        chunk_type="header",
+        rel_path="docs/txt/Data_Protection_-_Employees.txt",
+        start_line=1,
+        end_line=120,
+        text=(
+            "Current Document Status\n"
+            "164/24/25a(2) Annual or if\n"
+            "Minute no. Next review date required by\n"
+            "legislation"
+        ),
+    )
+
+    match = extract_policy_field(
+        question="What is the review frequency (or next review date guidance)?",
+        chunks=[chunk],
+    )
+
+    assert match is not None
+    assert match.field_key == "review_frequency"
+    assert match.value == "Annual or if required by legislation"
+
+
+def test_extract_policy_field_handles_as_required_variants():
+    chunk = _chunk(
+        chunk_id="h3",
+        chunk_type="header",
+        rel_path="docs/txt/Employee_Handbook.txt",
+        start_line=1,
+        end_line=120,
+        text="Next review date Annual or as required by legislation",
+    )
+
+    match = extract_policy_field(
+        question="What is the next review date guidance for the Employee Handbook?",
+        chunks=[chunk],
+    )
+
+    assert match is not None
+    assert match.field_key == "review_frequency"
+    assert match.value == "Annual or as required by legislation"
+
+
+def test_extract_policy_field_handles_interleaved_as_required_table_text():
+    chunk = _chunk(
+        chunk_id="h4",
+        chunk_type="header",
+        rel_path="docs/txt/Recruitment_and_Selection_Policy.txt",
+        start_line=1,
+        end_line=120,
+        text=(
+            "Current Document Status\n"
+            "Annual or as\n"
+            "Minute no. 146/25/26 Next review date required by\n"
+            "legislation"
+        ),
+    )
+
+    match = extract_policy_field(
+        question="What is the next review date guidance for the Recruitment and Selection Policy?",
+        chunks=[chunk],
+    )
+
+    assert match is not None
+    assert match.field_key == "review_frequency"
+    assert match.value == "Annual or as required by legislation"
