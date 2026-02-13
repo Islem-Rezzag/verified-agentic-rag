@@ -11,6 +11,7 @@ Each line in `gold.jsonl` and `silver.jsonl` is one JSON object.
 ## Answer-target fields
 - `expected_answer`: Canonical expected answer string, or list of required facts.
 - `expected_answer_regex`: Optional regex for flexible matching.
+- `required_phrases`: Optional list of phrases (2-5 recommended) that must appear in the answer text **or** in cited evidence text.
 - `acceptable_answers`: Optional list of accepted variants.
 - `normalization`: Optional normalization rule(s) applied before matching.
   - `uppercase`
@@ -23,6 +24,7 @@ Each line in `gold.jsonl` and `silver.jsonl` is one JSON object.
   - List of objects:
     - `label`: Chunk label in `path:start-end` format
     - `must_contain`: Optional list of anchor strings expected in that evidence span
+- `gold_evidence_labels`: Optional alias list of labels in `path:start-end` format.
 
 ## Legacy compatibility
 The evaluator still supports old fields from `questions.jsonl`:

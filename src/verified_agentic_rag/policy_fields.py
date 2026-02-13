@@ -23,6 +23,8 @@ FIELD_DEFS: Dict[str, Dict[str, object]] = {
         "question_patterns": [
             r"\bresponsible committee\b",
             r"\bcommittee\b.*\bresponsible\b",
+            r"\bwhich committee\b",
+            r"\bcommittee\b.*\b(owns|oversees|accountable)\b",
         ],
         "value_patterns": [
             r"responsible committee\s*[:\-]\s*([A-Za-z0-9&/,\- ]{2,120})",
@@ -32,9 +34,45 @@ FIELD_DEFS: Dict[str, Dict[str, object]] = {
         "name": "policy group",
         "question_patterns": [
             r"\bpolicy group\b",
+            r"\bwhich group\b.*\bpolicy\b",
+            r"\bwho\b.*\bpolicy\b.*\bapply\b",
+            r"\baudience\b",
         ],
         "value_patterns": [
             r"policy group\s*[:\-]\s*([A-Za-z0-9&/,\- ]{2,120})",
+        ],
+    },
+    "responsible_officer": {
+        "name": "responsible officer",
+        "question_patterns": [
+            r"\bresponsible officer\b",
+            r"\bwhich officer\b.*\bresponsible\b",
+            r"\bofficer\b.*\bpolicy\b",
+        ],
+        "value_patterns": [
+            r"responsible\s+officer\s*[:\-]?\s*([A-Za-z0-9&/.,\- ]{1,120})",
+        ],
+    },
+    "approved_by": {
+        "name": "approved by",
+        "question_patterns": [
+            r"\bapproved by\b",
+            r"\bapprov(?:ed|ing)\b.*\b(body|committee|group)\b",
+            r"\bwho approved\b",
+        ],
+        "value_patterns": [
+            r"approved\s+by\s*[:\-]?\s*([A-Za-z0-9&/.,\- ]{1,120})",
+        ],
+    },
+    "version": {
+        "name": "version",
+        "question_patterns": [
+            r"\bwhat is the version\b",
+            r"\bcurrent version\b",
+            r"\bversion\b",
+        ],
+        "value_patterns": [
+            r"\bversion\s*[:\-]?\s*([A-Za-z0-9./,\-]{2,40})",
         ],
     },
     "last_updated": {
@@ -42,9 +80,14 @@ FIELD_DEFS: Dict[str, Dict[str, object]] = {
         "question_patterns": [
             r"\blast updated\b",
             r"\bdate updated\b",
+            r"\bwhen was\b.*\bupdated\b",
+            r"\bwhat date\b.*\bupdated\b",
+            r"\bwhat date\b.*\bcurrent document status\b",
+            r"\bdate\b.*\brecorded\b",
         ],
         "value_patterns": [
             r"(?:last updated|date updated)\s*[:\-]?\s*([A-Za-z0-9./,\- ]{2,120})",
+            r"\bdate\s*[:\-]?\s*([0-9]{1,2}[./-][0-9]{1,2}[./-][0-9]{2,4})\b",
         ],
     },
     "review_date": {
@@ -64,10 +107,35 @@ FIELD_DEFS: Dict[str, Dict[str, object]] = {
             r"\breview frequency\b",
             r"\bfrequency\b.*\breview\b",
             r"\bhow often\b.*\breview\b",
+            r"\bnext review\b",
+            r"\breview timing\b",
+            r"\bnext review due\b",
         ],
         "value_patterns": [
             r"(annual(?:ly)?\s+or\s+(?:as|if)\s+required(?:\s+by\s+legislation)?)",
             r"(?:review frequency)\s*[:\-]?\s*([A-Za-z0-9./,\- ]{2,120})",
+        ],
+    },
+    "minute_no": {
+        "name": "minute number",
+        "question_patterns": [
+            r"\bminute\s+no\b",
+            r"\bminute\s+number\b",
+        ],
+        "value_patterns": [
+            r"minute\s+no\.?\s*[:\-]?\s*([A-Za-z0-9/().,\-]{2,80})",
+        ],
+    },
+    "document_retention_period": {
+        "name": "document retention period",
+        "question_patterns": [
+            r"\bdocument retention\b",
+            r"\bretention period\b",
+            r"\bhow long\b.*\bretain\b",
+            r"\bhow long\b.*\bkept\b",
+        ],
+        "value_patterns": [
+            r"document\s+retention\s+period\s*[:\-]?\s*([A-Za-z0-9&/.,\- ]{2,120})",
         ],
     },
 }
@@ -136,6 +204,77 @@ def _extract_review_frequency_value(text: str) -> Optional[str]:
     return None
 
 
+def _extract_responsible_officer_value(text: str) -> Optional[str]:
+    compact = _normalize_table_noise(text)
+    m = re.search(
+        r"(?i)responsible\s+officer\s*[:\-]?\s*([A-Za-z][A-Za-z0-9/().,\- ]{0,80})",
+        compact,
+    )
+    if not m:
+        return None
+    value = _clean_value(m.group(1))
+    # Remove trailing table labels that may bleed into extraction.
+    value = re.split(
+        r"(?i)\b(next review date|minute no\.?|version history|document retention)\b",
+        value,
+        maxsplit=1,
+    )[0].strip(" :;,-")
+    return value or None
+
+
+def _extract_approved_by_value(text: str) -> Optional[str]:
+    compact = _normalize_table_noise(text)
+    m = re.search(r"(?i)approved\s+by\s*[:\-]?\s*([A-Za-z0-9&/().,\- ]{1,60})", compact)
+    if not m:
+        return None
+    value = _clean_value(m.group(1))
+    value = re.split(
+        r"(?i)\b(date|responsible officer|minute no\.?|next review date)\b",
+        value,
+        maxsplit=1,
+    )[0].strip(" :;,-")
+    return value or None
+
+
+def _extract_version_value(text: str) -> Optional[str]:
+    compact = _normalize_table_noise(text)
+    m = re.search(r"(?i)\bversion\s*[:\-]?\s*([0-9]{2,4}(?:/[0-9]{2,4})?(?:\.[0-9]+)?)", compact)
+    if not m:
+        return None
+    return _clean_value(m.group(1)) or None
+
+
+def _extract_minute_no_value(text: str) -> Optional[str]:
+    compact = _normalize_table_noise(text)
+    m = re.search(r"(?i)\bminute\s+no\.?\s*[:\-]?\s*([A-Za-z0-9/().,\-]{2,80})", compact)
+    if not m:
+        return None
+    value = _clean_value(m.group(1))
+    value = re.split(
+        r"(?i)\b(next review date|version history|document retention)\b",
+        value,
+        maxsplit=1,
+    )[0].strip(" :;,-")
+    return value or None
+
+
+def _extract_document_retention_value(text: str) -> Optional[str]:
+    compact = _normalize_table_noise(text)
+    m = re.search(
+        r"(?is)\bdocument\s+retention\s+period\s*[:\-]?\s*([A-Za-z0-9&/().,\- ]{2,120})",
+        compact,
+    )
+    if not m:
+        return None
+    value = _clean_value(m.group(1))
+    value = re.split(
+        r"(?i)\b(page|version history|current document status)\b",
+        value,
+        maxsplit=1,
+    )[0].strip(" :;,-")
+    return value or None
+
+
 def detect_policy_field_question(question: str) -> Optional[Tuple[str, str]]:
     q = (question or "").lower()
     # Prefer frequency guidance extraction when both "review frequency" and
@@ -162,6 +301,26 @@ def extract_field_from_text(field_key: str, text: str) -> Optional[str]:
 
     if field_key == "review_frequency":
         normalized = _extract_review_frequency_value(text)
+        if normalized:
+            return normalized
+    elif field_key == "responsible_officer":
+        normalized = _extract_responsible_officer_value(text)
+        if normalized:
+            return normalized
+    elif field_key == "approved_by":
+        normalized = _extract_approved_by_value(text)
+        if normalized:
+            return normalized
+    elif field_key == "version":
+        normalized = _extract_version_value(text)
+        if normalized:
+            return normalized
+    elif field_key == "minute_no":
+        normalized = _extract_minute_no_value(text)
+        if normalized:
+            return normalized
+    elif field_key == "document_retention_period":
+        normalized = _extract_document_retention_value(text)
         if normalized:
             return normalized
 

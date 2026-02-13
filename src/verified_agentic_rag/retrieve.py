@@ -31,14 +31,24 @@ STOPWORDS = {
 
 METADATA_HINT_PATTERNS = [
     r"\bresponsible committee\b",
+    r"\bwhich committee\b",
     r"\bpolicy group\b",
+    r"\bwhich group\b",
     r"\bresponsible officer\b",
+    r"\bapproved by\b",
+    r"\bwho approved\b",
+    r"\bapproving body\b",
+    r"\bversion\b",
+    r"\bminute no\b",
+    r"\bminute number\b",
     r"\blast updated\b",
     r"\bdate updated\b",
+    r"\bdate\b.*\bupdated\b",
     r"\bnext review date\b",
     r"\breview date\b",
     r"\breview frequency\b",
     r"\bdocument retention\b",
+    r"\bretention period\b",
 ]
 
 

@@ -400,3 +400,65 @@ def test_refuse_question_does_not_require_evidence_recall(tmp_path, monkeypatch)
     assert row["pass_evidence_recall_rule"] is True
     assert row["pass_overall"] is True
 
+
+def test_required_phrases_can_match_cited_evidence(tmp_path, monkeypatch):
+    eval_path = tmp_path / "gold.jsonl"
+    out_path = tmp_path / "results.json"
+    eval_path.write_text(
+        json.dumps(
+            {
+                "id": "q_required_phrases",
+                "question": "What must staff do?",
+                "expected_behavior": "answer",
+                "question_type": "procedure",
+                "expected_doc": "Policy.txt",
+                "expected_answer": None,
+                "required_phrases": ["must notify", "line manager"],
+                "gold_evidence": [{"label": "docs/txt/Policy.txt:101-120"}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def fake_ask_question(cfg, question: str, debug: bool = False, no_llm: bool = False):
+        return SimpleNamespace(
+            retrieved=[
+                _chunk(
+                    chunk_id="c1",
+                    text="Employees must notify the line manager immediately.",
+                    rel_path="docs/txt/Policy.txt",
+                    start_line=101,
+                    end_line=120,
+                )
+            ],
+            answer=SimpleNamespace(
+                answer="Employees should inform their supervisor promptly.[docs/txt/Policy.txt:101-120]",
+                cannot_answer=False,
+                confidence="high",
+                model_confidence="high",
+                computed_confidence="high",
+            ),
+            verification={"all_supported": True},
+            retrieval_trace=None,
+        )
+
+    monkeypatch.setattr(evals, "ask_question", fake_ask_question)
+    monkeypatch.setattr(evals, "_build_corpus_cache", lambda cfg: {"docs/txt/Policy.txt": "Employees must notify line manager."})
+    evals.run_eval(eval_path=str(eval_path), output_path=str(out_path), mode="full")
+
+    row = json.loads(out_path.read_text(encoding="utf-8"))[0]
+    assert row["answer_matches_expected_value"] is True
+    assert row["pass_expected_value_rule"] is True
+    assert row["pass_overall"] is True
+
+
+def test_gold_evidence_labels_alias_is_supported():
+    labels = evals._extract_gold_labels(  # type: ignore[attr-defined]
+        {
+            "gold_evidence_labels": ["docs/txt/Policy.txt:1-120"],
+            "gold_evidence": [],
+        }
+    )
+    assert labels == ["docs/txt/Policy.txt:1-120"]
+

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -39,6 +41,47 @@ def _now_ts() -> str:
 
 def _hash_question(q: str) -> str:
     return hashlib.sha1(q.encode("utf-8")).hexdigest()[:10]
+
+
+_POLICY_CONTEXT_PATTERNS: List[str] = [
+    r"\bpolicy\b",
+    r"\bpolicy pack\b",
+    r"\bdocument status\b",
+    r"\bversion history\b",
+    r"\bresponsible committee\b",
+    r"\bresponsible officer\b",
+    r"\bpolicy group\b",
+    r"\breview date\b",
+    r"\breview frequency\b",
+    r"\bdata protection\b",
+    r"\bequality\b",
+    r"\bdiversity\b",
+    r"\brecruitment\b",
+    r"\bemployee handbook\b",
+    r"\bacceptable use\b",
+    r"\btown clerk\b",
+    r"\bline manager\b",
+    r"\blawful basis\b",
+    r"\bdocument retention\b",
+]
+
+_OFFTOPIC_PATTERNS: List[str] = [
+    r"\bkubernetes\b",
+    r"\bterraform\b",
+    r"\bdocker\b",
+    r"\baws\b",
+    r"\bbitcoin\b",
+    r"\bpremier league\b",
+    r"\bexchange rate\b",
+    r"\bweather\b",
+    r"\brestaurants?\b",
+    r"\bimmigration\b",
+    r"\bopenai\b",
+    r"\bcrewai\b",
+    r"\btransformer model\b",
+    r"\bcapital of france\b",
+    r"\bbash script\b",
+]
 
 
 def _to_confidence_level(
@@ -89,6 +132,45 @@ def _best_matching_doc(question: str, retrieved: List[RetrievedChunk]) -> Option
     return max(scores.items(), key=lambda x: x[1])[0]
 
 
+def _norm_rel_path(rel_path: str) -> str:
+    return (rel_path or "").replace("\\", "/").strip().lower()
+
+
+def _question_has_policy_context(question: str, retrieved: List[RetrievedChunk]) -> bool:
+    q = question or ""
+
+    if any(question_mentions_doc(q, c.rel_path) for c in retrieved):
+        return True
+
+    if any(re.search(p, q, flags=re.IGNORECASE) for p in _OFFTOPIC_PATTERNS):
+        return False
+
+    return any(re.search(p, q, flags=re.IGNORECASE) for p in _POLICY_CONTEXT_PATTERNS)
+
+
+def _heuristic_retrieval_relevant(question: str, retrieved: List[RetrievedChunk]) -> bool:
+    """
+    Fallback guardrail when LLM retrieval grading is too strict.
+
+    We only enable this for clearly in-domain policy questions and only when
+    retrieval is concentrated on one policy file with reasonable similarity.
+    """
+    if not retrieved:
+        return False
+    if not _question_has_policy_context(question, retrieved):
+        return False
+
+    top_similarity = float(retrieved[0].similarity) if retrieved else 0.0
+    if top_similarity < 0.35:
+        return False
+
+    by_doc = Counter(c.rel_path for c in retrieved if c.rel_path)
+    if not by_doc:
+        return False
+    _doc, count = by_doc.most_common(1)[0]
+    return count >= max(3, len(retrieved) // 2)
+
+
 def _extract_policy_field_with_doc_scan(
     *,
     question: str,
@@ -98,19 +180,25 @@ def _extract_policy_field_with_doc_scan(
     if detect_policy_field_question(question) is None:
         return None
 
-    direct = extract_policy_field(question=question, chunks=retrieved)
-    if direct is not None:
-        return direct
+    if not _question_has_policy_context(question, retrieved):
+        return None
 
     best_doc = _best_matching_doc(question, retrieved)
-    if not best_doc:
-        return None
+    if best_doc:
+        same_doc_retrieved = [c for c in retrieved if _norm_rel_path(c.rel_path) == _norm_rel_path(best_doc)]
+        if same_doc_retrieved:
+            doc_first = extract_policy_field(question=question, chunks=same_doc_retrieved)
+            if doc_first is not None:
+                return doc_first
 
-    doc_chunks = retriever.get_document_chunks(best_doc)
-    if not doc_chunks:
-        return None
+        doc_chunks = retriever.get_document_chunks(best_doc)
+        if doc_chunks:
+            doc_scan = extract_policy_field(question=question, chunks=doc_chunks)
+            if doc_scan is not None:
+                return doc_scan
 
-    return extract_policy_field(question=question, chunks=doc_chunks)
+    # Fallback when document mention is unclear: use retrieved set.
+    return extract_policy_field(question=question, chunks=retrieved)
 
 
 def ask_question(cfg: AppConfig, question: str, debug: bool = False, no_llm: bool = False) -> AgentRun:
@@ -209,12 +297,50 @@ def ask_question(cfg: AppConfig, question: str, debug: bool = False, no_llm: boo
             final_query = query
             break
 
+        # Fallback for in-domain policy questions where retrieval is concentrated
+        # on a single document but strict grading is inconclusive.
+        if _heuristic_retrieval_relevant(question=question, retrieved=retrieved):
+            retrieval_relevant = True
+            grade_reason = "heuristic relevance fallback (in-domain concentrated retrieval)"
+            grade_supporting_labels = [
+                f"{c.rel_path}:{c.start_line}-{c.end_line}"
+                for c in retrieved[:2]
+                if c.rel_path and c.start_line > 0 and c.end_line > 0
+            ]
+            final_query = query
+            break
+
         # Not relevant: rewrite query for the next attempt
         rewritten = grade.suggested_rewrite.strip() or llm.rewrite_query(question)
         if debug:
             print(f"\n[Agent] Retrieval not good enough. Rewriting query to: {rewritten}")
         query = rewritten
         final_query = query
+
+    if (not retrieval_relevant) and _question_has_policy_context(question, retrieved):
+        best_doc = _best_matching_doc(question, retrieved)
+        if best_doc:
+            doc_chunks = retriever.get_document_chunks(best_doc)
+            if doc_chunks:
+                # For policy questions, scan the full best-matching document
+                # (bounded) before refusing.
+                retrieved = doc_chunks[: max(cfg.top_k, 12)]
+                retrieval_relevant = True
+                grade_reason = f"document-scan fallback ({best_doc})"
+                grade_supporting_labels = [
+                    f"{c.rel_path}:{c.start_line}-{c.end_line}"
+                    for c in retrieved[:2]
+                    if c.rel_path and c.start_line > 0 and c.end_line > 0
+                ]
+
+                if deterministic_match is None:
+                    deterministic_match = _extract_policy_field_with_doc_scan(
+                        question=question,
+                        retrieved=retrieved,
+                        retriever=retriever,
+                    )
+                    if deterministic_match is not None:
+                        grade_supporting_labels = [deterministic_match.label]
 
     if not retrieval_relevant:
         if debug:

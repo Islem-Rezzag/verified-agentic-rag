@@ -84,15 +84,16 @@ def eval_suite(
 @app.command()
 def report_figures(
     csv_path: str = typer.Option(
-        "data/reports/full_system_eval_question_results_20260212.csv",
+        "reports/full_system_eval_question_results_20260213.csv",
         help="Question-level CSV to visualize",
     ),
     output_dir: str = typer.Option("reports/figures", help="Directory for PNG figures"),
+    date_tag: str = typer.Option("", help="Date suffix (YYYYMMDD). Defaults to current UTC date."),
 ):
     """
     Generate showcase charts from question-level evaluation CSV.
     """
-    paths = generate_result_figures(csv_path=csv_path, output_dir=output_dir)
+    paths = generate_result_figures(csv_path=csv_path, output_dir=output_dir, date_tag=date_tag)
     for p in paths:
         typer.echo(f"Wrote: {p}")
 

@@ -61,10 +61,11 @@ def eval_main() -> None:
 
 def report_main() -> None:
     parser = argparse.ArgumentParser(description="Generate result figures from question-level CSV.")
-    parser.add_argument("--csv-path", default="data/reports/full_system_eval_question_results_20260212.csv")
+    parser.add_argument("--csv-path", default="reports/full_system_eval_question_results_20260213.csv")
     parser.add_argument("--output-dir", default="reports/figures")
+    parser.add_argument("--date-tag", default="")
     args = parser.parse_args()
 
-    out = generate_result_figures(csv_path=args.csv_path, output_dir=args.output_dir)
+    out = generate_result_figures(csv_path=args.csv_path, output_dir=args.output_dir, date_tag=args.date_tag)
     for p in out:
         print(f"Wrote: {p}")

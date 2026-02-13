@@ -32,7 +32,9 @@ def load_questions(path: Path) -> List[Dict]:
         "question_type": "metadata"|"procedure"|"definition"|"multi_chunk"|"out_of_scope",
         "expected_answer": "..."|["fact1", "fact2"],   # optional
         "expected_answer_regex": "...",                # optional
+        "required_phrases": ["...", "..."],           # optional
         "gold_evidence": [{"label":"docs/...:1-120","must_contain":["..."]}],
+        "gold_evidence_labels": ["docs/...:1-120"],   # optional alias
         "acceptable_answers": ["..."],
         "normalization": "uppercase"|"strip_punct"|"date_iso"|["..."]
       }
@@ -196,6 +198,9 @@ def _extract_gold_labels(item: Dict[str, Any]) -> List[str]:
             lab = str(ev.get("label", "")).strip()
             if lab:
                 labels.append(lab)
+    for lab in item.get("gold_evidence_labels", []) or []:
+        if isinstance(lab, str) and lab.strip():
+            labels.append(lab.strip())
 
     # Legacy fallback (document-level signal when exact spans are absent).
     expected_doc_raw = item.get("expected_doc")
@@ -314,19 +319,47 @@ def _normalize_item(item: Dict[str, Any], idx: int) -> Dict[str, Any]:
         "expected_doc": item.get("expected_doc"),
         "expected_answer": expected_answer,
         "expected_answer_regex": expected_answer_regex,
+        "required_phrases": item.get("required_phrases") or [],
         "acceptable_answers": item.get("acceptable_answers") or [],
         "normalization": item.get("normalization"),
         "gold_evidence": item.get("gold_evidence") or [],
+        "gold_evidence_labels": item.get("gold_evidence_labels") or [],
     }
 
 
-def _answer_matches_expected(item: Dict[str, Any], answer_text: str) -> Optional[bool]:
+def _phrases_match(
+    text: str,
+    required_phrases: Sequence[str],
+    normalization: Optional[Any],
+) -> Optional[bool]:
+    phrases = [
+        _apply_normalization(str(p), normalization).lower()
+        for p in required_phrases
+        if str(p).strip()
+    ]
+    if len(phrases) == 0:
+        return None
+    haystack = _apply_normalization(text or "", normalization).lower()
+    return all(p in haystack for p in phrases)
+
+
+def _answer_matches_expected(
+    item: Dict[str, Any],
+    answer_text: str,
+    cited_evidence_text: str = "",
+) -> Optional[bool]:
     expected_answer = item.get("expected_answer")
     expected_answer_regex = item.get("expected_answer_regex")
+    required_phrases = item.get("required_phrases") or []
     acceptable_answers = item.get("acceptable_answers") or []
     normalization = item.get("normalization")
 
-    if expected_answer is None and not expected_answer_regex and len(acceptable_answers) == 0:
+    if (
+        expected_answer is None
+        and not expected_answer_regex
+        and len(acceptable_answers) == 0
+        and len(required_phrases) == 0
+    ):
         return None
 
     plain_answer = _strip_inline_citations(answer_text)
@@ -362,7 +395,16 @@ def _answer_matches_expected(item: Dict[str, Any], answer_text: str) -> Optional
         except re.error:
             regex_match = False
 
-    return list_match or candidate_match or regex_match
+    phrase_answer_match = _phrases_match(plain_answer, required_phrases, normalization)
+    phrase_cited_match = _phrases_match(cited_evidence_text, required_phrases, normalization)
+
+    return (
+        list_match
+        or candidate_match
+        or regex_match
+        or bool(phrase_answer_match)
+        or bool(phrase_cited_match)
+    )
 
 
 def _get_trace_labels(run: Any, stage_name: str) -> List[str]:
@@ -467,6 +509,7 @@ def _evaluate_questions(
         expected_doc = item.get("expected_doc")
         expected_answer = item.get("expected_answer")
         expected_answer_regex = item.get("expected_answer_regex")
+        required_phrases = item.get("required_phrases") or []
         gold_labels = _extract_gold_labels(item)
 
         run = ask_question(cfg, question=q, debug=False, no_llm=(mode == "retrieval"))
@@ -476,6 +519,8 @@ def _evaluate_questions(
         has_citations = len(answer_citation_labels) > 0
         retrieved_labels = [f"{c.rel_path}:{c.start_line}-{c.end_line}" for c in run.retrieved]
         retrieved_text = "\n".join(c.text for c in run.retrieved)
+        retrieved_by_label = {f"{c.rel_path}:{c.start_line}-{c.end_line}": c.text for c in run.retrieved}
+        cited_evidence_text = "\n".join(retrieved_by_label.get(lab, "") for lab in answer_citation_labels)
         retrieved_set = set(retrieved_labels)
 
         doc_metrics = _retrieval_doc_metrics(run.retrieved, expected_doc)
@@ -487,15 +532,27 @@ def _evaluate_questions(
             expected_value=expected_answer_str,
             expected_value_regex=expected_answer_regex,
         )
-        answer_value_match = _answer_matches_expected(item, ans.answer)
+        retrieval_required_phrase_match = _phrases_match(retrieved_text, required_phrases, item.get("normalization"))
+        answer_value_match = _answer_matches_expected(
+            item,
+            ans.answer,
+            cited_evidence_text=cited_evidence_text,
+        )
         corpus_value_match = _value_matches(
             corpus_text,
             expected_value=expected_answer_str,
             expected_value_regex=expected_answer_regex,
         )
+        corpus_required_phrase_match = _phrases_match(corpus_text, required_phrases, item.get("normalization"))
+        retrieval_signal: Optional[bool] = retrieval_value_match
+        corpus_signal: Optional[bool] = corpus_value_match
+        if retrieval_signal is None:
+            retrieval_signal = retrieval_required_phrase_match
+        if corpus_signal is None:
+            corpus_signal = corpus_required_phrase_match
         retrieval_missed_existing_value = (
-            bool(corpus_value_match) and (retrieval_value_match is False)
-        ) if corpus_value_match is not None else None
+            bool(corpus_signal) and (retrieval_signal is False)
+        ) if corpus_signal is not None else None
 
         verification_ok = _verification_passed(ans.cannot_answer, run.verification)
 
@@ -532,7 +589,10 @@ def _evaluate_questions(
             )
 
         if mode == "retrieval":
-            pass_expected_value_rule = True if retrieval_value_match is None else bool(retrieval_value_match)
+            if retrieval_signal is None:
+                pass_expected_value_rule = True
+            else:
+                pass_expected_value_rule = bool(retrieval_signal)
             pass_refusal_rule: Optional[bool] = None
             pass_citation_rule: Optional[bool] = None
             pass_verification_rule: Optional[bool] = None
@@ -572,10 +632,13 @@ def _evaluate_questions(
                 "expected_answer": expected_answer,
                 "expected_value_regex": expected_answer_regex,  # legacy key
                 "expected_answer_regex": expected_answer_regex,
+                "required_phrases": required_phrases,
                 "gold_evidence_labels": gold_labels,
                 "acceptable_answers": item.get("acceptable_answers", []),
                 "normalization": item.get("normalization"),
                 "cannot_answer": ans.cannot_answer,
+                "answer_text": ans.answer,
+                "answer_citations": answer_citation_labels,
                 "confidence": ans.confidence,
                 "model_confidence": ans.model_confidence,
                 "computed_confidence": ans.computed_confidence,
@@ -596,8 +659,10 @@ def _evaluate_questions(
                 "evidence_recall_after_rerank": evidence_after_rerank,
                 "reranker_dropped_evidence": reranker_dropped_evidence,
                 "retrieval_contains_expected_value": retrieval_value_match,
+                "retrieval_contains_required_phrases": retrieval_required_phrase_match,
                 "answer_matches_expected_value": answer_value_match,
                 "corpus_contains_expected_value": corpus_value_match,
+                "corpus_contains_required_phrases": corpus_required_phrase_match,
                 "retrieval_missed_existing_value": retrieval_missed_existing_value,
                 "verification_passed": verification_ok,
                 "pass_refusal_rule": pass_refusal_rule,
