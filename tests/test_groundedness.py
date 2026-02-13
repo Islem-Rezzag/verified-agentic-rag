@@ -1,9 +1,9 @@
-from types import SimpleNamespace
+﻿from types import SimpleNamespace
 
-from app.generate import LLMClient
-from app.policy_fields import detect_policy_field_question, extract_policy_field
-from app.retrieve import RetrievedChunk
-from app.verify import verify_answer_grounding
+from verified_agentic_rag.generate import LLMClient
+from verified_agentic_rag.policy_fields import detect_policy_field_question, extract_policy_field
+from verified_agentic_rag.retrieve import RetrievedChunk
+from verified_agentic_rag.verify import verify_answer_grounding
 
 
 def _chunk(
@@ -212,3 +212,4 @@ def test_extract_policy_field_handles_interleaved_as_required_table_text():
     assert match is not None
     assert match.field_key == "review_frequency"
     assert match.value == "Annual or as required by legislation"
+

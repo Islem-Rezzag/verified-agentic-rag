@@ -29,6 +29,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install -e .
 
       - name: Run unit tests
         run: python -m pytest -q
@@ -36,9 +37,9 @@ jobs:
       - name: Build retrieval index
         run: |
           python - <<'PY'
-          from app.config import AppConfig
-          from app.index import VectorIndex
-          from app.ingest import ingest
+          from verified_agentic_rag.config import AppConfig
+          from verified_agentic_rag.index import VectorIndex
+          from verified_agentic_rag.ingest import ingest
 
           cfg = AppConfig()
           cfg.ensure_dirs()
@@ -52,7 +53,7 @@ jobs:
         if: ${{ env.OPENAI_API_KEY != '' && env.OPENAI_MODEL != '' }}
         run: |
           python - <<'PY'
-          from app.evals import run_eval_gold_silver
+          from verified_agentic_rag.evals import run_eval_gold_silver
 
           run_eval_gold_silver(
               gold_path="evalset/gold.jsonl",
@@ -84,7 +85,7 @@ jobs:
         if: ${{ env.OPENAI_API_KEY == '' || env.OPENAI_MODEL == '' }}
         run: |
           python - <<'PY'
-          from app.evals import run_eval_gold_silver
+          from verified_agentic_rag.evals import run_eval_gold_silver
 
           run_eval_gold_silver(
               gold_path="evalset/gold.jsonl",

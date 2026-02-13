@@ -615,14 +615,14 @@ def _evaluate_questions(
 
 
 def run_eval(
-    eval_path: str = "evalset/questions.jsonl",
-    output_path: str = "data/eval_results.json",
+    eval_path: str = "evalset/gold.jsonl",
+    output_path: str = "data/eval_results_single.json",
     mode: str = "full",
 ) -> None:
     """
     Evaluate a single dataset file and write a flat list of per-question rows.
 
-    This is kept for backward compatibility with the original v1 flow.
+    This evaluates one dataset file (for quick experiments).
     """
     mode = mode.strip().lower()
     if mode not in {"full", "retrieval"}:
@@ -722,7 +722,7 @@ def run_eval_gold_silver(
 
 
 def run_eval_retrieval_only(
-    eval_path: str = "evalset/questions.jsonl",
+    eval_path: str = "evalset/gold.jsonl",
     output_path: str = "data/eval_results_retrieval.json",
 ) -> None:
     run_eval(eval_path=eval_path, output_path=output_path, mode="retrieval")

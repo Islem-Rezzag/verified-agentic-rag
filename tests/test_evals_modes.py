@@ -1,8 +1,8 @@
-import json
+﻿import json
 from types import SimpleNamespace
 
-import app.evals as evals
-from app.retrieve import RetrievedChunk
+import verified_agentic_rag.evals as evals
+from verified_agentic_rag.retrieve import RetrievedChunk
 
 
 def _chunk(
@@ -399,3 +399,4 @@ def test_refuse_question_does_not_require_evidence_recall(tmp_path, monkeypatch)
     assert row["evidence_recall_at_k"] is None
     assert row["pass_evidence_recall_rule"] is True
     assert row["pass_overall"] is True
+

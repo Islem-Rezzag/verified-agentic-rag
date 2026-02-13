@@ -1,4 +1,4 @@
-from app.cite import make_label, parse_labels_from_text, validate_citations
+﻿from verified_agentic_rag.cite import make_label, parse_labels_from_text, validate_citations
 
 
 def test_make_label():
@@ -21,3 +21,4 @@ def test_validate_citations():
     ok2, invalid2 = validate_citations("Claim. [docs/x.md:1-2]", allowed)
     assert ok2 is False
     assert invalid2 == ["docs/x.md:1-2"]
+

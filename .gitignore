@@ -1,8 +1,22 @@
-# Do not commit downloaded corpora
-data/source_repos/
-data/vector_store/
-data/logs/
+# Local environment
 .env
 .venv/
+.python-version
+
+# Python caches
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Build/package artifacts
+build/
+dist/
+*.egg-info/
+
+# Runtime artifacts (keep data directory shell only)
+data/**
+!data/.gitkeep
+
+# Optional local outputs
+reports/tmp/

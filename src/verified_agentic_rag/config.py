@@ -29,12 +29,12 @@ class AppConfig:
     """
 
     # Source (your local corpus)
-    source_name: str = os.getenv("RAG_SOURCE_NAME", "crewai")
-    repo_path: Path = Path(os.getenv("RAG_REPO_PATH", "data/source_repos/crewai"))
+    source_name: str = os.getenv("RAG_SOURCE_NAME", "saltash_policy_pack")
+    repo_path: Path = Path(os.getenv("RAG_REPO_PATH", "data/source_repos/saltash_policy_pack"))
 
     # Where Chroma (vector database) is stored on disk
     persist_dir: Path = Path(os.getenv("RAG_PERSIST_DIR", "data/vector_store"))
-    collection_name: str = os.getenv("RAG_COLLECTION_NAME", "crewai_docs")
+    collection_name: str = os.getenv("RAG_COLLECTION_NAME", "saltash_policy_docs")
 
     # "docs" = only index README.md + docs/
     # "full" = also index code folders (lib/)

@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "verified-agentic-rag"
+version = "0.4.0"
+description = "Verified agentic RAG over public-sector policy packs with strict citations and evidence-based evaluation."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "chromadb>=0.5.0",
+  "sentence-transformers>=2.7.0",
+  "numpy>=1.26.0",
+  "pydantic>=2.6.0",
+  "python-dotenv>=1.0.1",
+  "typer>=0.12.0",
+  "tqdm>=4.66.0",
+  "pypdf>=4.0.0",
+  "openai>=1.0.0",
+  "matplotlib>=3.8.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[project.scripts]
+varag = "verified_agentic_rag.cli:main"
+varag-ingest = "verified_agentic_rag.commands:ingest_main"
+varag-chat = "verified_agentic_rag.commands:chat_main"
+varag-eval = "verified_agentic_rag.commands:eval_main"
+varag-report = "verified_agentic_rag.commands:report_main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

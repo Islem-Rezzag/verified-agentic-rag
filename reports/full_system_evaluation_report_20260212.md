@@ -2,9 +2,9 @@
 
 - Generated on: 2026-02-12 18:02:46
 - Project: verified-agentic-rag
-- Retrieval suite file: `data/eval_results_suite_retrieval_post_upgrade.json`
-- Full suite file: `data/eval_results_suite_full_post_upgrade.json`
-- Question-level CSV: `data/reports/full_system_eval_question_results_20260212.csv`
+- Retrieval suite file: `reports/samples/eval_results_suite_retrieval_post_upgrade.json`
+- Full suite file: `reports/samples/eval_results_suite_full_post_upgrade.json`
+- Question-level CSV: `reports/full_system_eval_question_results_20260212.csv`
 
 ## 1) Test Execution
 

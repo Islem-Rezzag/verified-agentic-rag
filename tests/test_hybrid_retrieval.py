@@ -1,8 +1,8 @@
-from pathlib import Path
+﻿from pathlib import Path
 from types import SimpleNamespace
 
-from app.retrieve import Retriever
-from app.sparse import BM25SparseIndex, SparseChunk
+from verified_agentic_rag.retrieve import Retriever
+from verified_agentic_rag.sparse import BM25SparseIndex, SparseChunk
 
 
 def _cfg(**overrides):
@@ -227,3 +227,4 @@ def test_metadata_query_keeps_header_chunk_even_when_reranker_prefers_body():
     assert len(out) == 1
     assert out[0].chunk_type == "header"
     assert out[0].chunk_id == "h1"
+

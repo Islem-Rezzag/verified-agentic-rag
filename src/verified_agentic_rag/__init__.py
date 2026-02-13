@@ -7,4 +7,4 @@ This package implements:
 - agentic RAG loop (retrieve -> grade -> rewrite -> answer)
 - citation validation
 """
-__version__ = "0.1.0"
+__version__ = "0.4.0"

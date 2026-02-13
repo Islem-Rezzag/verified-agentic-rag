@@ -1,7 +1,7 @@
-from pathlib import Path
+﻿from pathlib import Path
 
-from app.chunking import Chunk, chunk_lines
-from app.index import VectorIndex
+from verified_agentic_rag.chunking import Chunk, chunk_lines
+from verified_agentic_rag.index import VectorIndex
 
 
 def _lines(n: int):
@@ -96,3 +96,4 @@ def test_upsert_chunks_stores_chunk_type_metadata(monkeypatch, tmp_path: Path):
     metadatas = fake_collection.calls[0]["metadatas"]
     assert metadatas[0]["chunk_type"] == "header"
     assert metadatas[1]["chunk_type"] == "body"
+
