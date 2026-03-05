@@ -46,6 +46,40 @@ def test_doc_and_value_matching_helpers():
     )
 
 
+def test_value_matches_canonical_aliases_bidirectionally():
+    assert evals._value_matches(  # type: ignore[attr-defined]
+        "The responsible committee is PERSONNEL.",
+        expected_value="P&F",
+        expected_value_regex=None,
+    )
+    assert evals._value_matches(  # type: ignore[attr-defined]
+        "Approved by P&F.",
+        expected_value="PERSONNEL",
+        expected_value_regex=None,
+    )
+
+
+def test_answer_matches_expected_uses_alias_canonicalization():
+    item = {
+        "expected_answer": "P&F",
+        "expected_answer_regex": None,
+        "required_phrases": [],
+        "acceptable_answers": [],
+        "normalization": ["uppercase"],
+    }
+    assert evals._answer_matches_expected(  # type: ignore[attr-defined]
+        item,
+        "The responsible committee is PERSONNEL.",
+    )
+
+    reverse = dict(item)
+    reverse["expected_answer"] = "PERSONNEL"
+    assert evals._answer_matches_expected(  # type: ignore[attr-defined]
+        reverse,
+        "Approved by P&F.",
+    )
+
+
 def test_run_eval_retrieval_mode(tmp_path, monkeypatch):
     eval_path = tmp_path / "questions.jsonl"
     out_path = tmp_path / "results.json"

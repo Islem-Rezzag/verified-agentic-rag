@@ -12,6 +12,12 @@ from .cite import parse_labels_from_text
 from .config import AppConfig
 from .ingest import iter_source_files
 
+_CANONICAL_ALIAS_PATTERNS: List[Tuple[re.Pattern[str], str]] = [
+    # Saltash policy pack committee naming variants.
+    (re.compile(r"\bp\s*[/&]\s*f\b", flags=re.IGNORECASE), "personnel"),
+    (re.compile(r"\bpersonnel\s*(?:and|&)?\s*finance\b", flags=re.IGNORECASE), "personnel"),
+]
+
 
 def load_questions(path: Path) -> List[Dict]:
     """
@@ -53,6 +59,13 @@ def _norm_text(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip()).lower()
 
 
+def _apply_alias_canonicalization(text: str) -> str:
+    out = text or ""
+    for pattern, replacement in _CANONICAL_ALIAS_PATTERNS:
+        out = pattern.sub(replacement, out)
+    return re.sub(r"\s+", " ", out).strip()
+
+
 def _strip_inline_citations(text: str) -> str:
     return re.sub(r"\[[^\[\]\n]+?:\d+-\d+\]", "", text or "")
 
@@ -91,7 +104,9 @@ def _value_matches(
     exact_match = False
     regex_match = False
     if expected_value:
-        exact_match = _norm_text(expected_value) in _norm_text(text)
+        exact_match = _norm_text(_apply_alias_canonicalization(expected_value)) in _norm_text(
+            _apply_alias_canonicalization(text)
+        )
     if expected_value_regex:
         try:
             regex_match = re.search(expected_value_regex, text or "", flags=re.IGNORECASE) is not None
@@ -185,6 +200,7 @@ def _apply_normalization(text: str, normalization: Optional[Any]) -> str:
         elif rule == "date_iso":
             out = _normalize_date_tokens(out)
 
+    out = _apply_alias_canonicalization(out)
     return re.sub(r"\s+", " ", out).strip()
 
 

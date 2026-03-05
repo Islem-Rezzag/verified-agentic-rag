@@ -1,190 +1,163 @@
-# Verified Agentic RAG for Public-Sector Policy Packs
+# Verified Agentic RAG
 
-A reliability-first agentic RAG mini-product for grounded Q&A over public employee policy documents, with strict citations, refusal behavior, and evidence-based evaluation.
+Reliable, citation-grounded policy Q&A over the Saltash Town Council policy corpus, with strict evaluation for retrieval quality, answer correctness, refusal behavior, and grounding.
 
-## What Problem This Solves
+## System Snapshot
 
-This project answers questions over the Saltash Town Council employee policy pack (Cornwall, UK) while enforcing:
-- grounded answers only from repository evidence,
-- exact citation labels (`file:start-end`),
-- refusal when evidence is missing or out-of-scope.
+| Item | Value |
+|---|---|
+| Primary use case | Policy/document Q&A with evidence citations |
+| Corpus | Saltash policy pack (`docs/txt/*.txt`) |
+| Retrieval stack | Dense + sparse hybrid + reranker |
+| Answering modes | `retrieval` and `full` |
+| Safety gate | Refusal + citation validation + grounding verification |
+| Test status | `44 passed` (`.venv\Scripts\python.exe -m pytest -q`) |
+| Latest benchmark run | `20260302_label_matching_upgrade` |
 
-It is designed as a mini-product benchmark for trustworthy policy QA, not just a demo chatbot.
+## What Changed in Latest Upgrade
 
-## Key Features
+Targeted reliability upgrade was applied to evaluation label matching:
 
-- PDF-to-text ingestion for policy pack documents.
-- Line-aware chunking with metadata/header prioritization.
-- Hybrid retrieval (dense + sparse fusion) plus reranking.
-- Metadata-first deterministic extraction for policy header fields.
-- Agentic retrieval refinement loop when first-pass context is weak.
-- Strict citation validation and citation-evidence overlap checks.
-- Post-answer groundedness verification gate.
-- Gold/Silver evaluation suite with evidence-based retrieval + answer metrics.
+- Added deterministic canonical alias normalization for policy committee labels.
+- Canonicalization now treats `P&F`, `P/F`, and `Personnel and Finance` as equivalent to `PERSONNEL` for evaluation matching.
+- This change is implemented in [`src/verified_agentic_rag/evals.py`](src/verified_agentic_rag/evals.py).
 
-## Architecture Overview
+## Reliable Label Matching: What Is Used
 
-```mermaid
-flowchart LR
-    A[Ingest PDFs/Text] --> B[Index in Chroma]
-    B --> C[Retrieve: Dense + Sparse + Rerank]
-    C --> D[Grade Retrieval]
-    D -->|sufficient| E[Extract Metadata or Generate Answer]
-    D -->|insufficient| C
-    E --> F[Verify Grounding]
-    F --> G[Validate Citations]
-    G --> H[Return Answer/Refusal]
-    H --> I[Log Trace + Eval Artifacts]
-```
+The evaluator uses deterministic, auditable matching rules (not embedding similarity thresholds):
 
-## Quickstart
+| Technique | Purpose | Reliability profile |
+|---|---|---|
+| Normalized exact match (`expected_answer`) | Direct value match in answer/context | High precision for structured metadata |
+| Regex match (`expected_answer_regex`) | Format-flexible matching | High recall when values have known textual patterns |
+| Required phrase match (`required_phrases`) | Narrative/procedural acceptance | More robust than brittle single-string checks |
+| Canonical alias normalization | `P&F` <-> `PERSONNEL` equivalence | Prevents false mismatches from label variants |
+| Citation overlap check | Answer citations must overlap gold evidence spans | Strong groundedness guarantee |
+| Verification gate | Supported-claims check before pass | Blocks unsupported answered claims |
 
-### 1) Setup
+## Evaluation Rules
+
+Implemented in [`src/verified_agentic_rag/evals.py`](src/verified_agentic_rag/evals.py).
+
+### Retrieval mode `pass_overall`
+
+`pass_expected_doc_rule && pass_evidence_recall_rule && pass_expected_value_rule`
+
+### Full mode `pass_overall`
+
+`pass_refusal_rule && pass_citation_rule && pass_expected_doc_rule && pass_evidence_recall_rule && pass_expected_value_rule && pass_citation_overlap_rule && pass_verification_rule`
+
+## Latest Results
+
+### Aggregate Metrics (Latest Run)
+
+Run artifacts:
+- `reports/runs/20260302_label_matching_upgrade/suite/20260302_label_matching_upgrade_suite_retrieval.json`
+- `reports/runs/20260302_label_matching_upgrade/suite/20260302_label_matching_upgrade_suite_full.json`
+- `reports/runs/20260302_label_matching_upgrade/tables/20260302_label_matching_upgrade_question_results.csv`
+
+| Mode | Dataset | Passed | Pass rate |
+|---|---|---:|---:|
+| Retrieval | Gold | 38 / 42 | 90.48% |
+| Retrieval | Silver | 131 / 142 | 92.25% |
+| Full | Gold | 26 / 42 | 61.90% |
+| Full | Silver | 92 / 142 | 64.79% |
+
+### Delta vs Previous Production Baseline (`20260213_agentic_fixes`)
+
+| Mode | Dataset | Previous | Latest | Delta |
+|---|---|---:|---:|---:|
+| Retrieval | Gold | 38 / 42 | 38 / 42 | 0 |
+| Retrieval | Silver | 131 / 142 | 131 / 142 | 0 |
+| Full | Gold | 26 / 42 | 26 / 42 | 0 |
+| Full | Silver | 88 / 142 | 92 / 142 | +4 |
+
+### Full-Mode Failure Rule Delta (Previous -> Latest)
+
+| Dataset | `pass_expected_value_rule` fail | `pass_refusal_rule` fail | `pass_citation_overlap_rule` fail |
+|---|---:|---:|---:|
+| Gold | 15 -> 15 | 10 -> 7 | 10 -> 7 |
+| Silver | 54 -> 47 | 26 -> 26 | 32 -> 32 |
+
+## Reproducible Commands
+
+### 1) Environment
 
 ```bash
 python -m venv .venv
-# Windows
 .venv\Scripts\activate
-# Linux/macOS
-# source .venv/bin/activate
-
 pip install -r requirements.txt
 pip install -e .
 ```
 
-### 2) Download/refresh policy corpus
+### 2) Build/refresh index
 
 ```bash
-python scripts/download_policy_pack.py --refresh-text
+.venv\Scripts\python.exe -m verified_agentic_rag.cli ingest --reset --scope docs
 ```
 
-### 3) Build index
+### 3) Ask a question
 
 ```bash
-varag-ingest --reset --scope docs
+.venv\Scripts\python.exe -m verified_agentic_rag.cli ask "What is the responsible committee for the Data Protection - Employees policy?"
 ```
 
-### 4) Ask a question
+### 4) Run evaluation suite
 
 ```bash
-varag-chat "What is the responsible committee for the Data Protection Policy - Employees?"
+.venv\Scripts\python.exe -m verified_agentic_rag.cli eval-suite --mode retrieval --output-path reports/runs/<run_id>/suite/<run_id>_suite_retrieval.json
+.venv\Scripts\python.exe -m verified_agentic_rag.cli eval-suite --mode full --output-path reports/runs/<run_id>/suite/<run_id>_suite_full.json
 ```
 
-### 5) Run evaluation suites
+### 5) Generate report artifacts
 
 ```bash
-varag-eval --mode retrieval --output-path reports/samples/eval_results_suite_retrieval_post_upgrade.json
-varag-eval --mode full --output-path reports/samples/eval_results_suite_full_post_upgrade.json
+.venv\Scripts\python.exe scripts/generate_evaluation_report.py --retrieval-suite reports/runs/<run_id>/suite/<run_id>_suite_retrieval.json --full-suite reports/runs/<run_id>/suite/<run_id>_suite_full.json --csv-out reports/runs/<run_id>/tables/<run_id>_question_results.csv --md-out reports/runs/<run_id>/analysis/<run_id>_evaluation_summary.md --pdf-out reports/runs/<run_id>/analysis/<run_id>_evaluation_summary.pdf
+.venv\Scripts\python.exe scripts/generate_report_figures.py --csv-path reports/runs/<run_id>/tables/<run_id>_question_results.csv --output-dir reports/runs/<run_id>/figures --date-tag <run_id>
 ```
 
-### 6) Generate charts
+### 6) Run tests
 
 ```bash
-python scripts/generate_report_figures.py \
-  --csv-path reports/full_system_eval_question_results_20260212.csv \
-  --output-dir reports/figures
+.venv\Scripts\python.exe -m pytest -q
 ```
 
-### 7) Run tests
+## FastAPI Fit Assessment (Real-World)
 
-```bash
-pytest -q
-```
+| Deployment context | CLI-only | FastAPI layer |
+|---|---|---|
+| Single analyst, local workflow | Strong fit | Usually unnecessary overhead |
+| Scheduled benchmark runs in CI | Strong fit | Optional |
+| Shared internal tool (multi-user) | Limited | Strong fit |
+| Integration with web apps, chat UI, or enterprise systems | Limited | Strong fit |
+| Governance/audit needs (request logs, auth, rate limiting) | Limited | Strong fit |
 
-## Evaluation Methodology
+Recommendation:
+- Keep CLI as the source-of-truth workflow for evaluation and reproducibility.
+- Add FastAPI only when you need multi-user access, remote integration, or service-style consumption.
 
-### Gold vs Silver
-
-- `evalset/gold.jsonl`: human-verified benchmark for strict reporting/gating.
-- `evalset/silver.jsonl`: broader weak-label regression coverage for drift detection.
-
-### Modes
-
-- Retrieval mode: evaluates evidence retrieval quality without LLM answer generation.
-- Full mode: evaluates end-to-end behavior (answer/refuse, citations, verification).
-
-### Core Metrics
-
-- `pass_overall`: strict final gate across required rules.
-- `evidence_recall_at_k`: whether retrieved chunks include required evidence.
-- `evidence_mrr`: rank quality of the first relevant evidence hit.
-- `evidence_ndcg_at_k`: ranking quality normalized to `[0,1]`.
-- `verification_passed`: groundedness/faithfulness gate result.
-
-## Latest Results (Post-Upgrade)
-
-Source artifacts:
-- `reports/samples/eval_results_suite_retrieval_post_upgrade.json`
-- `reports/samples/eval_results_suite_full_post_upgrade.json`
-- `reports/full_system_eval_question_results_20260212.csv`
-
-| Dataset | Retrieval Mode | Full Mode |
-|---|---:|---:|
-| Gold | 4/4 (100%) | 4/4 (100%) |
-| Silver | 11/11 (100%) | 11/11 (100%) |
-
-Additional verified indicators on current tiers:
-- Refusal correctness: passing.
-- Citation validity: passing.
-- Citation overlap with gold evidence: passing.
-- Verification (faithfulness gate): passing.
-- Test suite: `36/36` passing.
-
-Showcase figures:
-- `reports/figures/pass_rate_by_dataset_mode.png`
-- `reports/figures/behavior_confusion_full_mode.png`
-- `reports/figures/rule_pass_breakdown_full_mode.png`
-- `reports/figures/context_precision_distribution.png`
-
-![Pass Rate](reports/figures/pass_rate_by_dataset_mode.png)
-![Behavior Breakdown](reports/figures/behavior_confusion_full_mode.png)
-![Rule Breakdown](reports/figures/rule_pass_breakdown_full_mode.png)
-![Context Precision Distribution](reports/figures/context_precision_distribution.png)
-
-Limitation note:
-- Current gold set is still small (4 items). Expand with more narrative/procedural and multi-chunk questions before making broad generalization claims.
-
-## Repo Structure
+## Repository Layout
 
 ```text
-verified-agentic-rag/
-  src/verified_agentic_rag/
-    agentic.py
-    evals.py
-    retrieve.py
-    policy_fields.py
-    ...
-  tests/
-  scripts/
-    download_policy_pack.py
-    generate_silver_evalset.py
-    generate_report_figures.py
-  evalset/
-    gold.jsonl
-    silver.jsonl
-    SCHEMA.md
-  reports/
-    figures/
-    samples/
-    full_system_evaluation_report_20260212.md
-    full_system_eval_question_results_20260212.csv
-    RESULTS.md
-  docs/legacy/
-  data/   # runtime only (gitignored except keepers)
-  pyproject.toml
-  requirements.txt
+src/verified_agentic_rag/
+  agentic.py
+  evals.py
+  retrieve.py
+  policy_fields.py
+tests/
+scripts/
+evalset/
+reports/
+  runs/
+data/
 ```
 
-## Roadmap
+## Current Limitations and Next Steps
 
-- Expand gold benchmark with narrative and multi-hop policy questions.
-- Add section-aware chunking tuned for policy tables and status sections.
-- Add answer synthesis regression tests (style + citation alignment).
-- Add richer retrieval diagnostics (before/after rerank deltas in reports).
-- Add a lightweight UI demo for policy analysts.
-- Add periodic benchmark snapshots with versioned result packs.
+| Area | Current state | Next step |
+|---|---|---|
+| Narrative/procedure answer quality | Still weakest compared with metadata | Increase `required_phrases` coverage in gold labels |
+| Full-mode pass rate (gold) | 61.90% | Improve answer synthesis on definition/procedure items |
+| Determinism | LLM generation introduces run variance | Add fixed generation settings and optional replay harness |
+| API exposure | CLI-centric | Add FastAPI if multi-user/integration needs arise |
 
-## License and Data Provenance
-
-- License: no explicit OSS license file is currently included in this repository.
-- Data provenance: corpus documents are public-sector policy content from Saltash Town Council policy pages and linked PDFs. Keep source URLs and timestamps in reports when publishing benchmark claims.

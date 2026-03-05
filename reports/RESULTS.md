@@ -14,6 +14,28 @@ This directory stores evaluation outputs in a run-based structure.
 
 ## Run Folders
 
+### `20260302_label_matching_upgrade`
+
+- Suite outputs:
+  - `reports/runs/20260302_label_matching_upgrade/suite/20260302_label_matching_upgrade_suite_retrieval.json`
+  - `reports/runs/20260302_label_matching_upgrade/suite/20260302_label_matching_upgrade_suite_full.json`
+- Question-level table:
+  - `reports/runs/20260302_label_matching_upgrade/tables/20260302_label_matching_upgrade_question_results.csv`
+- Reports:
+  - `reports/runs/20260302_label_matching_upgrade/analysis/20260302_label_matching_upgrade_evaluation_summary.md`
+  - `reports/runs/20260302_label_matching_upgrade/analysis/20260302_label_matching_upgrade_evaluation_summary.pdf`
+  - `reports/runs/20260302_label_matching_upgrade/analysis/20260302_label_matching_upgrade_implementation_analysis.md`
+- Figures:
+  - `reports/runs/20260302_label_matching_upgrade/figures/20260302_label_matching_upgrade_pass_rate_by_dataset_mode.png`
+  - `reports/runs/20260302_label_matching_upgrade/figures/20260302_label_matching_upgrade_behavior_confusion_full_mode.png`
+  - `reports/runs/20260302_label_matching_upgrade/figures/20260302_label_matching_upgrade_rule_pass_breakdown_full_mode.png`
+  - `reports/runs/20260302_label_matching_upgrade/figures/20260302_label_matching_upgrade_retrieval_ranking_metrics_distribution.png`
+  - `reports/runs/20260302_label_matching_upgrade/figures/20260302_label_matching_upgrade_context_precision_distribution.png`
+- Core metrics:
+  - Retrieval: Gold `38/42` (`90.48%`), Silver `131/142` (`92.25%`)
+  - Full: Gold `26/42` (`61.90%`), Silver `92/142` (`64.79%`)
+  - Delta vs `20260213_agentic_fixes` full mode: Gold `+0`, Silver `+4`
+
 ### `20260213_agentic_fixes`
 
 - Suite outputs:

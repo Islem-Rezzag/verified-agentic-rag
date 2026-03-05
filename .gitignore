@@ -1,22 +1,41 @@
 # Local environment
 .env
+.env.*
 .venv/
+**/.venv/
 .python-version
 
-# Python caches
+# Python caches and test/tool outputs
 __pycache__/
+**/__pycache__/
 *.py[cod]
+*.pyo
 .pytest_cache/
+**/.pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 
 # Build/package artifacts
 build/
 dist/
 *.egg-info/
+pip-wheel-metadata/
+*.whl
 
 # Runtime artifacts (keep data directory shell only)
 data/**
 !data/.gitkeep
 
+# Editor/OS noise
+.ipynb_checkpoints/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
 # Optional local outputs
 reports/tmp/
+*.log
